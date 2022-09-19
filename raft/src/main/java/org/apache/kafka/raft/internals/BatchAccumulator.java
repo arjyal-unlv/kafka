@@ -125,6 +125,7 @@ public class BatchAccumulator<T> implements Closeable {
      *         committed
      * @throws NotLeaderException if the epoch doesn't match the leader epoch
      * @throws BufferAllocationException if we failed to allocate memory for the records
+     * @throws IllegalStateException if we tried to append new records after the batch has been built
      */
     public long appendAtomic(int epoch, List<T> records) {
         return append(epoch, records, true);
@@ -257,8 +258,8 @@ public class BatchAccumulator<T> implements Closeable {
     /**
      * Append a {@link LeaderChangeMessage} record to the batch
      *
-     * @param @LeaderChangeMessage The message to append
-     * @param @currentTimeMs The timestamp of message generation
+     * @param leaderChangeMessage The message to append
+     * @param currentTimeMs The current time in milliseconds
      * @throws IllegalStateException on failure to allocate a buffer for the record
      */
     public void appendLeaderChangeMessage(

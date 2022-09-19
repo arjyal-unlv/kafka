@@ -41,6 +41,16 @@ public class BatchMemoryPool implements MemoryPool {
         this.lock = new ReentrantLock();
     }
 
+
+    /**
+     * Allocate a byte buffer with {@code batchSize} in this pool.
+     *
+     * This method should always succeed and never return null. The sizeBytes parameter must be less than
+     * the batchSize used in the constructor.
+     *
+     * @param sizeBytes is used to determine if the requested size is exceeding the batchSize
+     * @throws IllegalArgumentException if sizeBytes is greater than batchSize
+     */
     @Override
     public ByteBuffer tryAllocate(int sizeBytes) {
         if (sizeBytes > batchSize) {
@@ -67,9 +77,9 @@ public class BatchMemoryPool implements MemoryPool {
         try {
             previouslyAllocated.clear();
 
-            if (previouslyAllocated.limit() != batchSize) {
+            if (previouslyAllocated.capacity() != batchSize) {
                 throw new IllegalArgumentException("Released buffer with unexpected size "
-                    + previouslyAllocated.limit());
+                    + previouslyAllocated.capacity());
             }
 
             free.offer(previouslyAllocated);
