@@ -16,18 +16,29 @@
  */
 package org.apache.kafka.connect.mirror;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Collections;
+import java.util.concurrent.ExecutionException;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AlterConsumerGroupOffsetsResult;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.TimeoutException;
+import org.apache.kafka.common.errors.UnknownMemberIdException;
+import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 public class MirrorCheckpointTaskTest {
 
@@ -137,5 +148,121 @@ public class MirrorCheckpointTaskTest {
                 "Consumer 1 " + topic1 + " failed");
         assertEquals(51, output.get(consumer2).get(t2p0).offset(),
                 "Consumer 2 " + topic2 + " failed");
+    }
+
+    // ------------------------------------------------------------------
+    // Tests for syncGroupOffset(String, Map) — the offset-sync failure
+    // handling added by apache/kafka PR #12432 (KAFKA-14095).
+    //
+    // That change replaced a fire-and-forget call to alterConsumerGroupOffsets
+    // with one that inspects the resulting future and reports the three possible
+    // outcomes differently: an UnknownMemberIdException is expected and warned
+    // about, any other failure is an error, and success is traced.
+    //
+    // The outcomes differ only in which log statement runs, so these tests assert
+    // the behavioural contract instead: whatever the admin client reports, the
+    // failure is handled inside the callback and never propagated to the caller.
+    // Before the change a failure was discarded silently; after it, it is
+    // observed. In neither case may it escape, because syncGroupOffset is called
+    // from the task's commit path.
+    //
+    // targetAdminClient is a private field with no setter, and the package-private
+    // "for testing" constructor does not accept an Admin, so the mock is installed
+    // by reflection.
+    // ------------------------------------------------------------------
+
+    private MirrorCheckpointTask taskWithAdminClient(Admin adminClient) throws Exception {
+        MirrorCheckpointTask task = new MirrorCheckpointTask("source1", "target2",
+            new DefaultReplicationPolicy(), null, Collections.emptyMap(), Collections.emptyMap());
+        Field field = MirrorCheckpointTask.class.getDeclaredField("targetAdminClient");
+        field.setAccessible(true);
+        field.set(task, adminClient);
+        return task;
+    }
+
+    /** An AlterConsumerGroupOffsetsResult whose all() future has already completed. */
+    private AlterConsumerGroupOffsetsResult resultCompletedWith(Throwable failure) {
+        KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
+        if (failure == null) {
+            future.complete(null);
+        } else {
+            future.completeExceptionally(failure);
+        }
+        AlterConsumerGroupOffsetsResult result = mock(AlterConsumerGroupOffsetsResult.class);
+        when(result.all()).thenReturn(future);
+        return result;
+    }
+
+    private Map<TopicPartition, OffsetAndMetadata> singleOffset() {
+        return Collections.singletonMap(new TopicPartition("topic1", 0), new OffsetAndMetadata(42L));
+    }
+
+    @Test
+    public void testSyncGroupOffsetSucceeds() throws Exception {
+        Admin adminClient = mock(Admin.class);
+        Map<TopicPartition, OffsetAndMetadata> offsets = singleOffset();
+        AlterConsumerGroupOffsetsResult result = resultCompletedWith(null);
+        when(adminClient.alterConsumerGroupOffsets(eq("consumer1"), eq(offsets))).thenReturn(result);
+
+        MirrorCheckpointTask task = taskWithAdminClient(adminClient);
+        task.syncGroupOffset("consumer1", offsets);
+
+        verify(adminClient).alterConsumerGroupOffsets(eq("consumer1"), eq(offsets));
+    }
+
+    @Test
+    public void testSyncGroupOffsetToleratesUnknownMemberId() throws Exception {
+        // Expected whenever consumers are actively using the group on the target
+        // cluster. It must not be treated as a hard failure.
+        Admin adminClient = mock(Admin.class);
+        Map<TopicPartition, OffsetAndMetadata> offsets = singleOffset();
+        AlterConsumerGroupOffsetsResult result = resultCompletedWith(
+            new ExecutionException(new UnknownMemberIdException("consumer is active")));
+        when(adminClient.alterConsumerGroupOffsets(eq("consumer1"), eq(offsets))).thenReturn(result);
+
+        MirrorCheckpointTask task = taskWithAdminClient(adminClient);
+        task.syncGroupOffset("consumer1", offsets);
+
+        verify(adminClient).alterConsumerGroupOffsets(eq("consumer1"), eq(offsets));
+    }
+
+    @Test
+    public void testSyncGroupOffsetToleratesOtherFailures() throws Exception {
+        Admin adminClient = mock(Admin.class);
+        Map<TopicPartition, OffsetAndMetadata> offsets = singleOffset();
+        AlterConsumerGroupOffsetsResult result = resultCompletedWith(
+            new ExecutionException(new TimeoutException("target cluster unreachable")));
+        when(adminClient.alterConsumerGroupOffsets(eq("consumer1"), eq(offsets))).thenReturn(result);
+
+        MirrorCheckpointTask task = taskWithAdminClient(adminClient);
+        task.syncGroupOffset("consumer1", offsets);
+
+        verify(adminClient).alterConsumerGroupOffsets(eq("consumer1"), eq(offsets));
+    }
+
+    @Test
+    public void testSyncGroupOffsetDoesNothingWithoutAdminClient() throws Exception {
+        // start() has not run, so targetAdminClient is null and the method must
+        // return without attempting anything.
+        MirrorCheckpointTask task = new MirrorCheckpointTask("source1", "target2",
+            new DefaultReplicationPolicy(), null, Collections.emptyMap(), Collections.emptyMap());
+        task.syncGroupOffset("consumer1", singleOffset());
+    }
+
+    @Test
+    public void testSyncGroupOffsetHandlesBareThrowable() throws Exception {
+        // A future completed with an exception that has no cause: getCause()
+        // returns null, which is not an UnknownMemberIdException, so the generic
+        // error path must still run without a NullPointerException.
+        Admin adminClient = mock(Admin.class);
+        Map<TopicPartition, OffsetAndMetadata> offsets = singleOffset();
+        AlterConsumerGroupOffsetsResult result = resultCompletedWith(
+            new TimeoutException("no cause attached"));
+        when(adminClient.alterConsumerGroupOffsets(eq("consumer1"), eq(offsets))).thenReturn(result);
+
+        MirrorCheckpointTask task = taskWithAdminClient(adminClient);
+        task.syncGroupOffset("consumer1", offsets);
+
+        verify(adminClient).alterConsumerGroupOffsets(eq("consumer1"), eq(offsets));
     }
 }
