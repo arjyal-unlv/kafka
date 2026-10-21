@@ -411,8 +411,11 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
             this.apiVersions = new ApiVersions();
             this.transactionManager = configureTransactionState(config, logContext);
+            // As per Kafka producer configuration documentation batch.size may be set to 0 to explicitly disable
+            // batching which in practice actually means using a batch size of 1.
+            int batchSize = Math.max(1, config.getInt(ProducerConfig.BATCH_SIZE_CONFIG));
             this.accumulator = new RecordAccumulator(logContext,
-                    config.getInt(ProducerConfig.BATCH_SIZE_CONFIG),
+                    batchSize,
                     this.compressionType,
                     lingerMs(config),
                     retryBackoffMs,
@@ -422,7 +425,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                     time,
                     apiVersions,
                     transactionManager,
-                    new BufferPool(this.totalMemorySize, config.getInt(ProducerConfig.BATCH_SIZE_CONFIG), metrics, time, PRODUCER_METRIC_GROUP_NAME));
+                    new BufferPool(this.totalMemorySize, batchSize, metrics, time, PRODUCER_METRIC_GROUP_NAME));
 
             List<InetSocketAddress> addresses = ClientUtils.parseAndValidateAddresses(
                     config.getList(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG),
