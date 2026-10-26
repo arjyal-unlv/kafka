@@ -96,6 +96,18 @@ public class StreamsConfigTest {
     }
 
     @Test
+    public void shouldFormatClientIdDocumentationAsHtml() {
+        final String html = StreamsConfig.configDef().toHtml();
+
+        assertThat(
+            html,
+            containsString(
+                "&lt;client.id&gt;-StreamThread-&lt;threadSequenceNumber&gt;-&lt;consumer|producer|restore-consumer&gt;"
+            )
+        );
+    }
+
+    @Test
     public void testOsDefaultSocketBufferSizes() {
         props.put(StreamsConfig.SEND_BUFFER_CONFIG, CommonClientConfigs.RECEIVE_BUFFER_LOWER_BOUND);
         props.put(StreamsConfig.RECEIVE_BUFFER_CONFIG, CommonClientConfigs.RECEIVE_BUFFER_LOWER_BOUND);
