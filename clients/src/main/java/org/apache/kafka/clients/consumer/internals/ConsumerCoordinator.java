@@ -68,6 +68,7 @@ import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 
 import java.nio.ByteBuffer;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -961,10 +962,27 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         }
     }
 
+    private boolean coordinatorUnknownAndUnready(Timer timer) {
+        return coordinatorUnknown() && !ensureCoordinatorReady(timer);
+    }
+
     public void commitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, final OffsetCommitCallback callback) {
         invokeCompletedOffsetCommitCallbacks();
 
-        if (!coordinatorUnknown()) {
+        if (offsets.isEmpty()) {
+            // No need to check coordinator if offsets is empty since commit of empty offsets is completed locally.
+            doCommitOffsetsAsync(offsets, callback);
+        } else if (!coordinatorUnknownAndUnready(time.timer(Duration.ZERO))) {
+            // we need to make sure coordinator is ready before committing, since
+            // this is for async committing we do not try to block, but just try once to
+            // clear the previous discover-coordinator future, resend, or get responses;
+            // if the coordinator is not ready yet then we would just proceed and put that into the
+            // pending requests, and future poll calls would still try to complete them.
+            //
+            // the key here though is that we have to try sending the discover-coordinator if
+            // it's not known or ready, since this is the only place we can send such request
+            // under manual assignment (there we would not have heartbeat thread trying to auto-rediscover
+            // the coordinator).
             doCommitOffsetsAsync(offsets, callback);
         } else {
             // we don't know the current coordinator, so try to find it and then send the commit
