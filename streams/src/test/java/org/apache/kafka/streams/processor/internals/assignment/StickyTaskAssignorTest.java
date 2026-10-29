@@ -63,12 +63,26 @@ import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
+import static org.junit.Assert.assertThrows;
 
 public class StickyTaskAssignorTest {
 
     private final List<Integer> expectedTopicGroupIds = asList(1, 2);
 
     private final Map<UUID, ClientState> clients = new TreeMap<>();
+
+    @Test
+    public void shouldThrowIllegalStateExceptionWhenTotalCapacityIsZero() {
+        final IllegalStateException exception = assertThrows(
+            IllegalStateException.class,
+            () -> assign(TASK_0_0)
+        );
+
+        assertThat(
+            exception.getMessage(),
+            equalTo("`totalCapacity` should never be zero.")
+        );
+    }
 
     @Test
     public void shouldAssignOneActiveTaskToEachProcessWhenTaskCountSameAsProcessCount() {
