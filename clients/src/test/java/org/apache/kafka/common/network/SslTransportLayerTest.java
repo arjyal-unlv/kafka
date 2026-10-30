@@ -73,6 +73,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+
+import java.lang.reflect.Field;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+
 /**
  * Tests for the SSL transport layer. These use a test harness that runs a simple socket server that echos back responses.
  */
@@ -151,6 +163,45 @@ public class SslTransportLayerTest {
             this.selector.close();
         if (server != null)
             this.server.close();
+    }
+
+    @Test
+    public void testSuccessfulHandshakeLogsTlsProtocol() throws Exception {
+        Args args = new Args("TLSv1.3", false, TestSslUtils.SSLProvider.DEFAULT);
+
+        server = createEchoServer(args, SecurityProtocol.SSL);
+        createSelector(args);
+
+        String node = "0";
+        InetSocketAddress address = new InetSocketAddress("localhost", server.port());
+        selector.connect(node, address, BUFFER_SIZE, BUFFER_SIZE);
+
+        // Access the transport layer before the SSL handshake completes.
+        KafkaChannel channel = selector.channel(node);
+        assertNotNull(channel);
+
+        Field transportField = KafkaChannel.class.getDeclaredField("transportLayer");
+        transportField.setAccessible(true);
+        SslTransportLayer transportLayer = (SslTransportLayer) transportField.get(channel);
+
+        // Replace the logger with a mock to verify the handshake DEBUG message.
+        Logger logger = mock(Logger.class);
+        Field loggerField = SslTransportLayer.class.getDeclaredField("log");
+        loggerField.setAccessible(true);
+        loggerField.set(transportLayer, logger);
+
+        // Complete the SSL handshake.
+        NetworkTestUtils.waitForChannelReady(selector, node);
+
+        // Verify that the successful handshake log includes TLSv1.3.
+        verify(logger).debug(
+                contains("protocol '{}'"),
+                any(),
+                any(),
+                any(),
+                eq("TLSv1.3"),
+                any()
+        );
     }
 
     /**
