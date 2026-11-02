@@ -34,9 +34,52 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.kafka.common.protocol.ObjectSerializationCache;
+
 class BatchBuilderTest {
     private StringSerde serde = new StringSerde();
     private MockTime time = new MockTime();
+
+    @org.junit.jupiter.api.Test
+    void testBytesNeededThrowsOnIntegerOverflow() {
+        StringSerde largeRecordSerde = new StringSerde() {
+            @Override
+            public int recordSize(
+                String data,
+                ObjectSerializationCache serializationCache
+            ) {
+                return Integer.MAX_VALUE - 20;
+            }
+        };
+
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
+
+        BatchBuilder<String> builder = new BatchBuilder<>(
+            buffer,
+            largeRecordSerde,
+            CompressionType.NONE,
+            0L,
+            time.milliseconds(),
+            false,
+            1,
+            buffer.limit()
+        );
+
+
+        ArithmeticException exception = assertThrows(
+            ArithmeticException.class,
+            () -> builder.bytesNeeded(Arrays.asList("large-record"), null)
+         );
+
+        assertTrue(
+            Arrays.stream(exception.getStackTrace())
+                .anyMatch(frame ->
+                    frame.getClassName().equals(BatchBuilder.class.getName())
+                        && frame.getMethodName().equals("bytesNeeded")
+                ),
+            "Overflow must originate from BatchBuilder.bytesNeeded()"
+        );
+    }
 
     @ParameterizedTest
     @EnumSource(CompressionType.class)
