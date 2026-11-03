@@ -2165,7 +2165,15 @@ public class KafkaConsumerTest {
         service.execute(() -> consumer.poll(Duration.ofSeconds(5)));
         try {
             TimeUnit.SECONDS.sleep(1);
-            assertThrows(ConcurrentModificationException.class, consumer::groupMetadata);
+            final Thread currentThread = Thread.currentThread();
+
+            final ConcurrentModificationException exception =
+                    assertThrows(ConcurrentModificationException.class, consumer::groupMetadata);
+
+            assertTrue(exception.getMessage().contains(
+                    "currentThread(name: " + currentThread.getName() + ", id: " + currentThread.getId() + ")"
+            ));
+            assertTrue(exception.getMessage().contains("otherThread(id: "));
             client.wakeup();
             consumer.wakeup();
         } finally {
