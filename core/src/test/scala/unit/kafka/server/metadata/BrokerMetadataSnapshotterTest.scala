@@ -104,30 +104,45 @@ class BrokerMetadataSnapshotterTest {
     }
   }
 
-  class MockSnapshotWriter extends SnapshotWriter[ApiMessageAndVersion] {
-    val batches = new util.ArrayList[util.List[ApiMessageAndVersion]]
-    override def snapshotId(): OffsetAndEpoch = new OffsetAndEpoch(0, 0)
-    override def lastContainedLogOffset(): Long = 0
-    override def lastContainedLogEpoch(): Int = 0
-    override def isFrozen: Boolean = false
-    override def append(batch: util.List[ApiMessageAndVersion]): Unit = batches.add(batch)
-    override def freeze(): Unit = {}
-    override def close(): Unit = {}
-  }
-
   @Test
   def testRecordListConsumer(): Unit = {
-    val writer = new MockSnapshotWriter()
-    val consumer = new RecordListConsumer(3, writer)
-    val m = new ApiMessageAndVersion(new FenceBrokerRecord().setId(1).setEpoch(1), 0.toShort)
+    val batches = new util.ArrayList[util.List[ApiMessageAndVersion]]
+
+    val consumer = new RecordListConsumer(
+      3,
+      (batch: util.List[ApiMessageAndVersion]) =>
+        batches.add(new util.ArrayList[ApiMessageAndVersion](batch))
+    )
+
+    val m = new ApiMessageAndVersion(
+      new FenceBrokerRecord().setId(1).setEpoch(1),
+      0.toShort
+    )
+
     consumer.accept(asList(m, m))
-    assertEquals(asList(asList(m, m)), writer.batches)
+    assertEquals(asList(asList(m, m)), batches)
+
     consumer.accept(asList(m))
-    assertEquals(asList(asList(m, m), asList(m)), writer.batches)
+    assertEquals(asList(asList(m, m), asList(m)), batches)
+
     consumer.accept(asList(m, m, m, m))
-    assertEquals(asList(asList(m, m), asList(m), asList(m, m, m), asList(m)), writer.batches)
+    assertEquals(
+      asList(asList(m, m), asList(m), asList(m, m, m), asList(m)),
+      batches
+    )
+
     consumer.accept(asList(m, m, m, m, m, m, m, m))
-    assertEquals(asList(asList(m, m), asList(m), asList(m, m, m), asList(m), asList(m, m, m), asList(m, m, m), asList(m, m)),
-      writer.batches)
+    assertEquals(
+      asList(
+        asList(m, m),
+        asList(m),
+        asList(m, m, m),
+        asList(m),
+        asList(m, m, m),
+        asList(m, m, m),
+        asList(m, m)
+      ),
+      batches
+    )
   }
 }

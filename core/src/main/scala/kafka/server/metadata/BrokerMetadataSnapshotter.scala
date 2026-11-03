@@ -42,12 +42,12 @@ trait SnapshotWriterBuilder {
  */
 class RecordListConsumer(
   val maxRecordsInBatch: Int,
-  val writer: SnapshotWriter[ApiMessageAndVersion]
+  val appendBatch: java.util.List[ApiMessageAndVersion] => Unit
 ) extends Consumer[java.util.List[ApiMessageAndVersion]] {
   override def accept(messages: java.util.List[ApiMessageAndVersion]): Unit = {
     var i = 0
     while (i < messages.size()) {
-      writer.append(messages.subList(i, Math.min(i + maxRecordsInBatch, messages.size())));
+      appendBatch(messages.subList(i, Math.min(i + maxRecordsInBatch, messages.size())))
       i += maxRecordsInBatch
     }
   }
@@ -101,7 +101,10 @@ class BrokerMetadataSnapshotter(
 
     override def run(): Unit = {
       try {
-        val consumer = new RecordListConsumer(maxRecordsInBatch, writer)
+        val consumer = new RecordListConsumer(
+          maxRecordsInBatch,
+          (batch: java.util.List[ApiMessageAndVersion]) => writer.append(batch)
+        )
         image.write(consumer)
         writer.freeze()
       } finally {
