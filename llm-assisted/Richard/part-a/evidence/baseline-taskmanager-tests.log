@@ -1,0 +1,305 @@
+
+> Configure project :
+Starting build with version 3.0.1-SNAPSHOT using Gradle 7.1.1, Java 11 and Scala 2.12.15
+
+> Task :storage:api:processResources NO-SOURCE
+> Task :storage:api:determineCommitId UP-TO-DATE
+> Task :streams:test-utils:processResources NO-SOURCE
+> Task :server-common:processResources NO-SOURCE
+> Task :server-common:determineCommitId UP-TO-DATE
+> Task :raft:processResources UP-TO-DATE
+> Task :storage:processResources UP-TO-DATE
+> Task :storage:determineCommitId UP-TO-DATE
+> Task :core:processResources UP-TO-DATE
+> Task :streams:processResources UP-TO-DATE
+> Task :generator:compileJava UP-TO-DATE
+> Task :generator:processResources NO-SOURCE
+> Task :raft:processTestResources UP-TO-DATE
+> Task :generator:classes UP-TO-DATE
+> Task :server-common:createVersionFile
+> Task :storage:api:createVersionFile
+> Task :storage:createVersionFile
+> Task :streams:processTestResources UP-TO-DATE
+> Task :storage:api:processTestResources NO-SOURCE
+> Task :core:processTestResources UP-TO-DATE
+> Task :raft:determineCommitId UP-TO-DATE
+> Task :streams:determineCommitId UP-TO-DATE
+> Task :metadata:processResources UP-TO-DATE
+> Task :raft:createVersionFile
+> Task :streams:createStreamsVersionFile
+> Task :storage:processMessages UP-TO-DATE
+> Task :streams:processMessages UP-TO-DATE
+> Task :core:processMessages UP-TO-DATE
+> Task :raft:processMessages UP-TO-DATE
+> Task :metadata:processMessages UP-TO-DATE
+> Task :metadata:processTestResources UP-TO-DATE
+> Task :clients:processResources UP-TO-DATE
+> Task :clients:processMessages UP-TO-DATE
+> Task :clients:compileJava UP-TO-DATE
+> Task :clients:classes UP-TO-DATE
+> Task :clients:determineCommitId UP-TO-DATE
+> Task :clients:createVersionFile
+> Task :streams:compileJava UP-TO-DATE
+> Task :streams:classes UP-TO-DATE
+> Task :server-common:compileJava UP-TO-DATE
+> Task :storage:api:compileJava UP-TO-DATE
+> Task :clients:jar UP-TO-DATE
+> Task :server-common:classes UP-TO-DATE
+> Task :storage:api:classes UP-TO-DATE
+> Task :clients:processTestMessages UP-TO-DATE
+> Task :server-common:jar UP-TO-DATE
+> Task :storage:api:jar UP-TO-DATE
+> Task :raft:compileJava UP-TO-DATE
+> Task :raft:classes UP-TO-DATE
+> Task :raft:jar UP-TO-DATE
+> Task :streams:test-utils:compileJava UP-TO-DATE
+> Task :streams:test-utils:classes UP-TO-DATE
+> Task :metadata:compileJava UP-TO-DATE
+> Task :metadata:classes UP-TO-DATE
+> Task :metadata:jar UP-TO-DATE
+> Task :streams:checkstyleMain UP-TO-DATE
+> Task :streams:copyDependantLibs UP-TO-DATE
+> Task :storage:compileJava
+> Task :storage:compileScala NO-SOURCE
+> Task :storage:classes
+> Task :core:compileJava NO-SOURCE
+> Task :clients:compileTestJava UP-TO-DATE
+> Task :clients:processTestResources UP-TO-DATE
+> Task :clients:testClasses UP-TO-DATE
+> Task :storage:jar
+> Task :storage:api:compileTestJava UP-TO-DATE
+> Task :storage:api:testClasses UP-TO-DATE
+> Task :raft:compileTestJava UP-TO-DATE
+> Task :raft:testClasses UP-TO-DATE
+> Task :metadata:compileTestJava UP-TO-DATE
+> Task :metadata:testClasses UP-TO-DATE
+> Task :streams:jar
+> Task :streams:spotbugsMain UP-TO-DATE
+> Task :streams:test-utils:copyDependantLibs
+> Task :streams:test-utils:jar UP-TO-DATE
+
+> Task :core:compileScala
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/controller/ControllerChannelManager.scala:306: non-variable type argument org.apache.kafka.common.requests.AbstractControlRequest in type pattern org.apache.kafka.common.requests.AbstractControlRequest.Builder[org.apache.kafka.common.requests.AbstractControlRequest] is unchecked since it is eliminated by erasure
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/server/FetcherEventManager.scala:25: Unused import
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/server/ApiVersionManager.scala:49: lazy value logMessageFormatVersion in class KafkaConfig is deprecated: 3.0
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/server/KafkaConfig.scala:1371: value LogMessageFormatVersionProp in object KafkaConfig is deprecated: 3.0
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/server/KafkaConfig.scala:1371: value LogMessageFormatVersion in object Defaults is deprecated: 3.0
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/server/KafkaConfig.scala:1938: value LogMessageFormatVersionProp in object KafkaConfig is deprecated: 3.0
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/server/KafkaConfig.scala:2313: lazy value logMessageFormatVersion in class KafkaConfig is deprecated: 3.0
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/utils/Implicits.scala:58: @nowarn annotation does not suppress any warnings
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/raft/KafkaMetadataLog.scala:473: @nowarn annotation does not suppress any warnings
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/security/authorizer/AclAuthorizer.scala:506: @nowarn annotation does not suppress any warnings
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/utils/CoreUtils.scala:330: @nowarn annotation does not suppress any warnings
+11 warnings found
+Unexpected javac output: warning: [options] bootstrap class path not set in conjunction with -source 8
+Note: /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/main/scala/kafka/tools/StreamsResetter.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+1 warning.
+
+> Task :core:classes
+> Task :core:copyDependantLibs
+> Task :core:jar
+> Task :core:compileTestJava NO-SOURCE
+
+> Task :core:compileTestScala
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/test/scala/integration/kafka/api/CorruptedBrokersTest.scala:61: local val controller in method isrCleanupOnCorruptedBrokerStartup is never used
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/test/scala/integration/kafka/server/FetcherEventManagerTest.scala:25: Unused import
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/test/scala/integration/kafka/server/PreferredControllerTest.scala:28: Unused import
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/test/scala/integration/kafka/server/PreferredControllerTest.scala:36: Unused import
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/test/scala/integration/kafka/server/PreferredControllerTest.scala:37: Unused import
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/test/scala/integration/kafka/server/FetcherEventManagerTest.scala:109: match may not be exhaustive.
+It would fail on the following inputs: AddPartitions(_, _), GetPartitionCount(_), GetPartitionState(_, _), RemovePartitions(_, _)
+[Warn] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/core/src/test/scala/integration/kafka/api/RecordHeaderProducerSendTest.scala:73: value LogMessageFormatVersionProp in object KafkaConfig is deprecated: 3.0
+7 warnings found
+Unexpected javac output: warning: [options] bootstrap class path not set in conjunction with -source 8
+1 warning.
+
+> Task :core:testClasses
+> Task :streams:compileTestJava
+> Task :streams:testClasses
+> Task :streams:checkstyleTest UP-TO-DATE
+
+> Task :streams:test
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldComputeOffsetSumForStandbyTask PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCommitNonCorruptedTasksOnTaskCorruptedException PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldPunctuateActiveTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldAddNonResumedSuspendedTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotCommitNonRunningNonCorruptedTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCommitViaConsumerIfEosDisabled PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldIdempotentlyUpdateSubscriptionFromActiveAssignment PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldSuspendAllTasksButSkipCommitIfSuspendingFailsDuringRevocation PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldHaveRemainingPartitionsUncleared PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseActiveTasksAndPropagateTaskProducerExceptionsOnCleanShutdown PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseAndReviveUncorruptedTasksWhenTimeoutExceptionThrownFromCommitWithALOS PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldThrowWhenHandlingClosingTasksOnProducerCloseError PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldThrowSameKafkaExceptionWhenEncounteredDuringTaskClose PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseDirtyActiveUnassignedTasksWhenErrorCleanClosingTask PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotCommitOffsetsIfOnlyStandbyTasksAssigned PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldComputeOffsetSumForNonRunningActiveTask PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldConvertStandbyTaskToActiveTask PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldPropagateRuntimeExceptionsInProcessActiveTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldUpdateInputPartitionsAfterRebalance PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCommitAllActiveTasksThatNeedCommittingOnHandleRevocationWithEosV2 PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldConvertActiveTaskToStandbyTask PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldTryToLockValidTaskDirsAtRebalanceStart PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotLockAnythingIfStateDirIsEmpty PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotCommitActiveAndStandbyTasksWhileRebalanceInProgress PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseActiveTasksAndIgnoreExceptionsOnUncleanShutdown PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldPropagateTaskMigratedExceptionsInPunctuateActiveTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldSkipUnknownOffsetsWhenComputingOffsetSum PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotReportOffsetSumsAndReleaseLockForUnassignedTaskWithoutCheckpoint PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotCommitCreatedTasksOnRevocationOrClosure PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldOnlyCommitRevokedStandbyTaskAndPropagatePrepareCommitException PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldInitializeNewStandbyTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldComputeOffsetSumFromCheckpointFileForUninitializedTask PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotCommitOnHandleAssignmentIfOnlyStandbyTaskClosed PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCleanAndReviveCorruptedStandbyTasksBeforeCommittingNonCorruptedTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseActiveTasksAndPropagateExceptionsOnCleanShutdown PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotCompleteRestorationIfTasksCannotInitialize PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseActiveTasksWhenHandlingLostTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldComputeOffsetSumForUnassignedTaskWeCanLock PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldStreamsExceptionOnCommitError PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldPropagateTaskMigratedExceptionsInProcessActiveTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldPropagateExceptionFromActiveCommit PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldReportLatestOffsetAsOffsetSumForRunningTask PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldHandleRebalanceEvents PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotCompleteRestorationIfTaskCannotCompleteRestoration PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldThrowTaskCorruptedExceptionForTimeoutExceptionOnCommitWithEosV2 PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseActiveUnassignedSuspendedTasksWhenClosingRevokedTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldPassUpIfExceptionDuringSuspend PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldReInitializeThreadProducerOnHandleLostAllIfEosV2Enabled PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseActiveTasksAndPropagateThreadProducerExceptionsOnCleanShutdown PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldReviveCorruptTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldSuspendAllRevokedActiveTasksAndPropagateSuspendException PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldPinOffsetSumToLongMaxValueInCaseOfOverflow PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotFailForTimeoutExceptionOnConsumerCommit PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotCommitOnHandleAssignmentIfNoTaskClosed PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldFailOnCommitFatal PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldIgnorePurgeDataErrors PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldAddNewActiveTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCommitActiveAndStandbyTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseStandbyUnassignedTasksWhenCreatingNewTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldTransmitProducerMetrics PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldReleaseLockForUnassignedTasksAfterRebalance PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotFailForTimeoutExceptionOnCommitWithEosAlpha PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldProcessActiveTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCommitProvidedTasksIfNeeded PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldSuspendActiveTasksDuringRevocation PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldInitializeNewActiveTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldReviveCorruptTasksEvenIfTheyCannotCloseClean PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseAndReviveUncorruptedTasksWhenTimeoutExceptionThrownFromCommitDuringRevocationWithALOS PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldSendPurgeData PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldMaybeCommitAllActiveTasksThatNeedCommit PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseAndReviveUncorruptedTasksWhenTimeoutExceptionThrownFromCommitDuringHandleCorruptedWithEOS PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldThrowTaskMigratedWhenAllTaskCloseExceptionsAreTaskMigrated PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCommitViaProducerIfEosV2Enabled PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldPropagateExceptionFromStandbyCommit PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotFailOnTimeoutException PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldThrowTaskMigratedExceptionOnCommitFailed PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotAttemptToCommitInHandleCorruptedDuringARebalance PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldPropagateKafkaExceptionsInPunctuateActiveTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotSendPurgeDataIfPreviousNotDone PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseStandbyTasksOnShutdown PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCommitViaProducerIfEosAlphaEnabled PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldNotReportOffsetSumsForTaskWeCantLock PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldReturnFalseWhenThereAreStillNonRunningTasks PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCommitAllNeededTasksOnHandleRevocation PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldComputeOffsetSumFromCheckpointFileForClosedTask PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldThrowRuntimeExceptionWhenEncounteredUnknownExceptionDuringTaskClose PASSED
+
+org.apache.kafka.streams.processor.internals.TaskManagerTest > shouldCloseAndReviveUncorruptedTasksWhenTimeoutExceptionThrownFromCommitDuringRevocationWithEOS PASSED
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 8.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+See https://docs.gradle.org/7.1.1/userguide/command_line_interface.html#sec:command_line_warnings
+
+BUILD SUCCESSFUL in 40s
+56 actionable tasks: 16 executed, 40 up-to-date

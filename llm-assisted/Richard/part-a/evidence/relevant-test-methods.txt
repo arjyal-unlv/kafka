@@ -1,0 +1,31 @@
+383:    public void shouldComputeOffsetSumFromCheckpointFileForClosedTask() throws Exception {
+452:    public void shouldCloseActiveUnassignedSuspendedTasksWhenClosingRevokedTasks() {
+491:    public void shouldCloseDirtyActiveUnassignedTasksWhenErrorCleanClosingTask() {
+528:    public void shouldCloseActiveTasksWhenHandlingLostTasks() throws Exception {
+577:    public void shouldReInitializeThreadProducerOnHandleLostAllIfEosV2Enabled() {
+590:    public void shouldThrowWhenHandlingClosingTasksOnProducerCloseError() {
+674:    public void shouldReviveCorruptTasksEvenIfTheyCannotCloseClean() {
+878:    public void shouldCloseAndReviveUncorruptedTasksWhenTimeoutExceptionThrownFromCommitWithALOS() {
+942:    public void shouldCloseAndReviveUncorruptedTasksWhenTimeoutExceptionThrownFromCommitDuringHandleCorruptedWithEOS() {
+1027:    public void shouldCloseAndReviveUncorruptedTasksWhenTimeoutExceptionThrownFromCommitDuringRevocationWithALOS() {
+1080:    public void shouldCloseAndReviveUncorruptedTasksWhenTimeoutExceptionThrownFromCommitDuringRevocationWithEOS() {
+1153:    public void shouldCloseStandbyUnassignedTasksWhenCreatingNewTasks() {
+1173:    public void shouldAddNonResumedSuspendedTasks() {
+1336:    public void shouldSuspendActiveTasksDuringRevocation() {
+1357:    public void shouldCommitAllActiveTasksThatNeedCommittingOnHandleRevocationWithEosV2() {
+1432:    public void shouldCommitAllNeededTasksOnHandleRevocation() {
+1493:    public void shouldNotCommitOnHandleAssignmentIfNoTaskClosed() {
+1523:    public void shouldNotCommitOnHandleAssignmentIfOnlyStandbyTaskClosed() {
+1552:    public void shouldNotCommitCreatedTasksOnRevocationOrClosure() {
+1570:    public void shouldPassUpIfExceptionDuringSuspend() {
+1594:    public void shouldCloseActiveTasksAndPropagateExceptionsOnCleanShutdown() {
+1716:    public void shouldCloseActiveTasksAndPropagateTaskProducerExceptionsOnCleanShutdown() {
+1769:    public void shouldCloseActiveTasksAndPropagateThreadProducerExceptionsOnCleanShutdown() {
+1820:    public void shouldOnlyCommitRevokedStandbyTaskAndPropagatePrepareCommitException() {
+1851:    public void shouldSuspendAllRevokedActiveTasksAndPropagateSuspendException() {
+1882:    public void shouldCloseActiveTasksAndIgnoreExceptionsOnUncleanShutdown() {
+1959:    public void shouldCloseStandbyTasksOnShutdown() {
+2783:    public void shouldThrowTaskMigratedWhenAllTaskCloseExceptionsAreTaskMigrated() {
+2815:    public void shouldThrowRuntimeExceptionWhenEncounteredUnknownExceptionDuringTaskClose() {
+2846:    public void shouldThrowSameKafkaExceptionWhenEncounteredDuringTaskClose() {
+3145:    public void shouldSuspendAllTasksButSkipCommitIfSuspendingFailsDuringRevocation() {

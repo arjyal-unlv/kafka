@@ -1,0 +1,34 @@
+diff --git a/streams/src/main/java/org/apache/kafka/streams/processor/internals/TaskManager.java b/streams/src/main/java/org/apache/kafka/streams/processor/internals/TaskManager.java
+index bab05a5184..4bba28a3f3 100644
+--- a/streams/src/main/java/org/apache/kafka/streams/processor/internals/TaskManager.java
++++ b/streams/src/main/java/org/apache/kafka/streams/processor/internals/TaskManager.java
+@@ -757,8 +757,6 @@ public class TaskManager {
+             }
+         }
+ 
+-        removeRevokedTasksFromStateUpdater(remainingRevokedPartitions);
+-
+         if (!remainingRevokedPartitions.isEmpty()) {
+             log.debug("The following revoked partitions {} are missing from the current task partitions. It could "
+                           + "potentially be due to race condition of consumer detecting the heartbeat failure, or the tasks " +
+@@ -844,20 +842,6 @@ public class TaskManager {
+         }
+     }
+ 
+-    private void removeRevokedTasksFromStateUpdater(final Set<TopicPartition> remainingRevokedPartitions) {
+-        if (stateUpdater != null) {
+-            for (final Task restoringTask : stateUpdater.getTasks()) {
+-                if (restoringTask.isActive()) {
+-                    if (remainingRevokedPartitions.containsAll(restoringTask.inputPartitions())) {
+-                        tasks.addPendingTaskToClose(restoringTask.id());
+-                        stateUpdater.remove(restoringTask.id());
+-                        remainingRevokedPartitions.removeAll(restoringTask.inputPartitions());
+-                    }
+-                }
+-            }
+-        }
+-    }
+-
+     private void prepareCommitAndAddOffsetsToMap(final Set<Task> tasksToPrepare,
+                                                  final Map<Task, Map<TopicPartition, OffsetAndMetadata>> consumedOffsetsPerTask) {
+         for (final Task task : tasksToPrepare) {
