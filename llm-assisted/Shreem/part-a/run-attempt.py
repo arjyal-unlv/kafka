@@ -11,7 +11,7 @@ run is reproducible; they are also written into the output header.
 import json, sys, time, urllib.request, pathlib
 
 MODEL   = "qwen2.5-coder:7b"
-OPTIONS = {"temperature": 0.2, "top_p": 0.9, "seed": 42, "num_ctx": 8192,
+OPTIONS = {"temperature": 0.2, "top_p": 0.9, "seed": 42, "num_ctx": 16384,
            "repeat_penalty": 1.15, "num_predict": 4096}
 MARKER  = "## Prompt as sent"
 BASE    = pathlib.Path(__file__).parent
