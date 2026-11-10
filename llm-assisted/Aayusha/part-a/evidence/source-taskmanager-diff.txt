@@ -1,0 +1,32 @@
+commit 9ea3d0d1c8d975f5d53e3bd74d78e1a9913169c4
+Author: Lucas Brutschy <lucasbru@users.noreply.github.com>
+Date:   Mon Nov 28 17:17:14 2022 +0100
+
+    KAFKA-12679: Handle lock exceptions in state updater  (#12875)
+    
+    In this change, we enable backing off when the state directory
+    is still locked during initialization of a task. When the state
+    directory is locked, the task is reinserted into the
+    initialization queue. We will reattempt to acquire the lock
+    after the next round of polling.
+    
+    Tested through a new unit test.
+    
+    Reviewer: Bruno Cadonna <cadonna@apache.org>
+
+diff --git a/streams/src/main/java/org/apache/kafka/streams/processor/internals/TaskManager.java b/streams/src/main/java/org/apache/kafka/streams/processor/internals/TaskManager.java
+index f1e42220c0..583662f092 100644
+--- a/streams/src/main/java/org/apache/kafka/streams/processor/internals/TaskManager.java
++++ b/streams/src/main/java/org/apache/kafka/streams/processor/internals/TaskManager.java
+@@ -833,6 +833,11 @@ public class TaskManager {
+             try {
+                 task.initializeIfNeeded();
+                 stateUpdater.add(task);
++            } catch (final LockException lockException) {
++                // The state directory may still be locked by another thread, when the rebalance just happened.
++                // Retry in the next iteration.
++                log.info("Encountered lock exception. Reattempting locking the state in the next iteration.", lockException);
++                tasks.addPendingTaskToInit(Collections.singleton(task));
+             } catch (final RuntimeException e) {
+                 // need to add task back to the bookkeeping to be handled by the stream thread
+                 tasks.addTask(task);

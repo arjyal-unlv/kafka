@@ -1,0 +1,27 @@
+PR: Apache Kafka #12875
+Source commit: 9ea3d0d1c8d975f5d53e3bd74d78e1a9913169c4
+Target: linkedin/kafka 3.0-li
+Target baseline commit: b66a8c827d6b8441a89ebf78eac38666bf0551cc
+
+Ordinary cherry-pick result:
+- Failed with conflicts.
+- Conflicting files:
+  1. streams/src/main/java/org/apache/kafka/streams/processor/internals/TaskManager.java
+  2. streams/src/test/java/org/apache/kafka/streams/processor/internals/TaskManagerTest.java
+
+RePatch result:
+- RePatch also did not produce a conflict-free integration.
+- 2 conflicting files
+- 2 conflicts
+- 1,456 conflicting LOC
+- runtime approximately 399,399 ms
+- scoped refactoring analysis did not identify a refactoring that explained/resolved the conflict.
+
+Source-target design finding:
+- The upstream patch assumes the newer StateUpdater task lifecycle.
+- linkedin/kafka 3.0-li does not contain StateUpdater.
+- The target instead performs task initialization inside TaskManager.tryToCompleteRestoration().
+- The target already catches LockException, sets allRunning=false, and retries initialization in the next iteration.
+
+Initial assessment:
+The integration barrier is architectural/semantic divergence rather than a simple rename, move, or other scoped refactoring.
