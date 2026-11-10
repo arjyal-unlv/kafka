@@ -1,0 +1,10 @@
+=== git status ===
+On branch pr-12875
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	llm-assisted/
+
+nothing added to commit but untracked files present (use "git add" to track)
+
+=== HEAD ===
+b66a8c827d [LI-HOTFIX] Scope NOT_LEADER_OR_FOLLOWER produce error log levels (#602)

@@ -1,0 +1,11 @@
+# Verification of attempt-02 model output — PR #14088
+# date:    Tue Nov 10 10:39:51 PST 2026
+# context given: upstream diff + the real appendRecords method from 3.0-li (lines 649-740)
+# command: git apply --check llm-assisted/Shreem/part-a/evidence/attempt-02-model.patch
+
+error: patch failed: core/src/main/scala/kafka/server/ReplicaManager.scala:732
+error: core/src/main/scala/kafka/server/ReplicaManager.scala: patch does not apply
+
+# result: fails. The model narrowed from 7 files to 1, but anchored its patch on
+#         unverifiedEntries / unverifiedResults, which occur 0 times in the 2548-line
+#         baseline file it was shown. It again stated it was CONFIDENT this compiles.

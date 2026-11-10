@@ -1,0 +1,51 @@
+21-import org.apache.kafka.clients.admin.RecordsToDelete;
+22-import org.apache.kafka.clients.consumer.CommitFailedException;
+23-import org.apache.kafka.clients.consumer.Consumer;
+24-import org.apache.kafka.clients.consumer.ConsumerRecords;
+25-import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+26-import org.apache.kafka.common.KafkaException;
+27-import org.apache.kafka.common.Metric;
+28-import org.apache.kafka.common.MetricName;
+29-import org.apache.kafka.common.TopicPartition;
+30-import org.apache.kafka.common.errors.TimeoutException;
+31-import org.apache.kafka.common.utils.LogContext;
+32-import org.apache.kafka.common.utils.Time;
+33:import org.apache.kafka.streams.errors.LockException;
+34-import org.apache.kafka.streams.errors.StreamsException;
+35-import org.apache.kafka.streams.errors.TaskCorruptedException;
+36-import org.apache.kafka.streams.errors.TaskIdFormatException;
+37-import org.apache.kafka.streams.errors.TaskMigratedException;
+38-import org.apache.kafka.streams.processor.TaskId;
+39-import org.apache.kafka.streams.processor.internals.StateDirectory.TaskDirectory;
+40-import org.apache.kafka.streams.processor.internals.Task.State;
+41-import org.apache.kafka.streams.processor.internals.metrics.StreamsMetricsImpl;
+42-import org.apache.kafka.streams.state.internals.OffsetCheckpoint;
+43-
+44-import org.slf4j.Logger;
+45-
+--
+426-     * @throws IllegalStateException If store gets registered after initialized is already finished
+427-     * @throws StreamsException if the store's change log does not contain the partition
+428-     * @return {@code true} if all tasks are fully restored
+429-     */
+430-    boolean tryToCompleteRestoration(final long now, final java.util.function.Consumer<Set<TopicPartition>> offsetResetter) {
+431-        boolean allRunning = true;
+432-
+433-        final List<Task> activeTasks = new LinkedList<>();
+434-        for (final Task task : tasks.allTasks()) {
+435-            try {
+436-                task.initializeIfNeeded();
+437-                task.clearTaskTimeout();
+438:            } catch (final LockException lockException) {
+439-                // it is possible that if there are multiple threads within the instance that one thread
+440-                // trying to grab the task from the other, while the other has not released the lock since
+441-                // it did not participate in the rebalance. In this case we can just retry in the next iteration
+442-                log.debug("Could not initialize task {} since: {}; will retry", task.id(), lockException.getMessage());
+443-                allRunning = false;
+444-            } catch (final TimeoutException timeoutException) {
+445-                task.maybeInitTaskTimeoutOrThrow(now, timeoutException);
+446-                allRunning = false;
+447-            }
+448-
+449-            if (task.isActive()) {
+450-                activeTasks.add(task);

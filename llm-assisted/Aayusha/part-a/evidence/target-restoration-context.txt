@@ -1,0 +1,71 @@
+410-                log.error(uncleanMessage, e);
+411-                taskCloseExceptions.putIfAbsent(oldTask.id(), e);
+412-                tasksToCloseDirty.add(oldTask);
+413-            }
+414-        }
+415-
+416-        // for tasks that cannot be cleanly closed or recycled, close them dirty
+417-        for (final Task task : tasksToCloseDirty) {
+418-            closeTaskDirty(task);
+419-            tasks.cleanUpTaskProducerAndRemoveTask(task.id(), taskCloseExceptions);
+420-        }
+421-    }
+422-
+423-    /**
+424-     * Tries to initialize any new or still-uninitialized tasks, then checks if they can/have completed restoration.
+425-     *
+426-     * @throws IllegalStateException If store gets registered after initialized is already finished
+427-     * @throws StreamsException if the store's change log does not contain the partition
+428-     * @return {@code true} if all tasks are fully restored
+429-     */
+430:    boolean tryToCompleteRestoration(final long now, final java.util.function.Consumer<Set<TopicPartition>> offsetResetter) {
+431-        boolean allRunning = true;
+432-
+433-        final List<Task> activeTasks = new LinkedList<>();
+434-        for (final Task task : tasks.allTasks()) {
+435-            try {
+436-                task.initializeIfNeeded();
+437-                task.clearTaskTimeout();
+438-            } catch (final LockException lockException) {
+439-                // it is possible that if there are multiple threads within the instance that one thread
+440-                // trying to grab the task from the other, while the other has not released the lock since
+441-                // it did not participate in the rebalance. In this case we can just retry in the next iteration
+442-                log.debug("Could not initialize task {} since: {}; will retry", task.id(), lockException.getMessage());
+443-                allRunning = false;
+444-            } catch (final TimeoutException timeoutException) {
+445-                task.maybeInitTaskTimeoutOrThrow(now, timeoutException);
+446-                allRunning = false;
+447-            }
+448-
+449-            if (task.isActive()) {
+450-                activeTasks.add(task);
+451-            }
+452-        }
+453-
+454-        if (allRunning && !activeTasks.isEmpty()) {
+455-
+456-            final Set<TopicPartition> restored = changelogReader.completedChangelogs();
+457-
+458-            for (final Task task : activeTasks) {
+459-                if (restored.containsAll(task.changelogPartitions())) {
+460-                    try {
+461-                        task.completeRestoration(offsetResetter);
+462-                        task.clearTaskTimeout();
+463-                    } catch (final TimeoutException timeoutException) {
+464-                        task.maybeInitTaskTimeoutOrThrow(now, timeoutException);
+465-                        log.debug(
+466-                            String.format(
+467-                                "Could not complete restoration for %s due to the following exception; will retry",
+468-                                task.id()),
+469-                            timeoutException
+470-                        );
+471-
+472-                        allRunning = false;
+473-                    }
+474-                } else {
+475-                    // we found a restoring task that isn't done restoring, which is evidence that
+476-                    // not all tasks are running
+477-                    allRunning = false;
+478-                }
+479-            }
+480-        }
