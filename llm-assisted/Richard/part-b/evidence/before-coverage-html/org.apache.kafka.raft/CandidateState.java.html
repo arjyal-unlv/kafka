@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CandidateState.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft</a> &gt; <span class="el_source">CandidateState.java</span></div><h1>CandidateState.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft;
+
+import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Timer;
+import org.slf4j.Logger;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+public class CandidateState implements EpochState {
+    private final int localId;
+    private final int epoch;
+    private final int retries;
+<span class="fc" id="L34">    private final Map&lt;Integer, State&gt; voteStates = new HashMap&lt;&gt;();</span>
+    private final Optional&lt;LogOffsetMetadata&gt; highWatermark;
+    private final int electionTimeoutMs;
+    private final Timer electionTimer;
+    private final Timer backoffTimer;
+    private final Logger log;
+
+    /**
+     * The life time of a candidate state is the following:
+     *
+     *  1. Once started, it would keep record of the received votes.
+     *  2. If majority votes granted, it can then end its life and will be replaced by a leader state;
+     *  3. If majority votes rejected or election timed out, it would transit into a backing off phase;
+     *     after the backoff phase completes, it would end its left and be replaced by a new candidate state with bumped retry.
+     */
+    private boolean isBackingOff;
+
+    protected CandidateState(
+        Time time,
+        int localId,
+        int epoch,
+        Set&lt;Integer&gt; voters,
+        Optional&lt;LogOffsetMetadata&gt; highWatermark,
+        int retries,
+        int electionTimeoutMs,
+        LogContext logContext
+<span class="fc" id="L60">    ) {</span>
+<span class="fc" id="L61">        this.localId = localId;</span>
+<span class="fc" id="L62">        this.epoch = epoch;</span>
+<span class="fc" id="L63">        this.highWatermark = highWatermark;</span>
+<span class="fc" id="L64">        this.retries = retries;</span>
+<span class="fc" id="L65">        this.isBackingOff = false;</span>
+<span class="fc" id="L66">        this.electionTimeoutMs = electionTimeoutMs;</span>
+<span class="fc" id="L67">        this.electionTimer = time.timer(electionTimeoutMs);</span>
+<span class="fc" id="L68">        this.backoffTimer = time.timer(0);</span>
+<span class="fc" id="L69">        this.log = logContext.logger(CandidateState.class);</span>
+
+<span class="fc bfc" id="L71" title="All 2 branches covered.">        for (Integer voterId : voters) {</span>
+<span class="fc" id="L72">            voteStates.put(voterId, State.UNRECORDED);</span>
+<span class="fc" id="L73">        }</span>
+<span class="fc" id="L74">        voteStates.put(localId, State.GRANTED);</span>
+<span class="fc" id="L75">    }</span>
+
+    public int localId() {
+<span class="nc" id="L78">        return localId;</span>
+    }
+
+    public int majoritySize() {
+<span class="fc" id="L82">        return voteStates.size() / 2 + 1;</span>
+    }
+
+    private long numGranted() {
+<span class="fc bfc" id="L86" title="All 2 branches covered.">        return voteStates.values().stream().filter(state -&gt; state == State.GRANTED).count();</span>
+    }
+
+    private long numUnrecorded() {
+<span class="fc bfc" id="L90" title="All 2 branches covered.">        return voteStates.values().stream().filter(state -&gt; state == State.UNRECORDED).count();</span>
+    }
+
+    /**
+     * Check if the candidate is backing off for the next election
+     */
+    public boolean isBackingOff() {
+<span class="fc" id="L97">        return isBackingOff;</span>
+    }
+
+    public int retries() {
+<span class="fc" id="L101">        return retries;</span>
+    }
+
+    /**
+     * Check whether we have received enough votes to conclude the election and become leader.
+     *
+     * @return true if at least a majority of nodes have granted the vote
+     */
+    public boolean isVoteGranted() {
+<span class="fc bfc" id="L110" title="All 2 branches covered.">        return numGranted() &gt;= majoritySize();</span>
+    }
+
+    /**
+     * Check if we have received enough rejections that it is no longer possible to reach a
+     * majority of grants.
+     *
+     * @return true if the vote is rejected, false if the vote is already or can still be granted
+     */
+    public boolean isVoteRejected() {
+<span class="fc bfc" id="L120" title="All 2 branches covered.">        return numGranted() + numUnrecorded() &lt; majoritySize();</span>
+    }
+
+    /**
+     * Record a granted vote from one of the voters.
+     *
+     * @param remoteNodeId The id of the voter
+     * @return true if the voter had not been previously recorded
+     * @throws IllegalArgumentException if the remote node is not a voter or if the vote had already been
+     *         rejected by this node
+     */
+    public boolean recordGrantedVote(int remoteNodeId) {
+<span class="fc" id="L132">        State state = voteStates.get(remoteNodeId);</span>
+<span class="fc bfc" id="L133" title="All 2 branches covered.">        if (state == null) {</span>
+<span class="fc" id="L134">            throw new IllegalArgumentException(&quot;Attempt to grant vote to non-voter &quot; + remoteNodeId);</span>
+<span class="fc bfc" id="L135" title="All 2 branches covered.">        } else if (state == State.REJECTED) {</span>
+<span class="fc" id="L136">            throw new IllegalArgumentException(&quot;Attempt to grant vote from node &quot; + remoteNodeId +</span>
+                &quot; which previously rejected our request&quot;);
+        }
+<span class="fc bfc" id="L139" title="All 2 branches covered.">        return voteStates.put(remoteNodeId, State.GRANTED) == State.UNRECORDED;</span>
+    }
+
+    /**
+     * Record a rejected vote from one of the voters.
+     *
+     * @param remoteNodeId The id of the voter
+     * @return true if the rejected vote had not been previously recorded
+     * @throws IllegalArgumentException if the remote node is not a voter or if the vote had already been
+     *         granted by this node
+     */
+    public boolean recordRejectedVote(int remoteNodeId) {
+<span class="fc" id="L151">        State state = voteStates.get(remoteNodeId);</span>
+<span class="fc bfc" id="L152" title="All 2 branches covered.">        if (state == null) {</span>
+<span class="fc" id="L153">            throw new IllegalArgumentException(&quot;Attempt to reject vote to non-voter &quot; + remoteNodeId);</span>
+<span class="fc bfc" id="L154" title="All 2 branches covered.">        } else if (state == State.GRANTED) {</span>
+<span class="fc" id="L155">            throw new IllegalArgumentException(&quot;Attempt to reject vote from node &quot; + remoteNodeId +</span>
+                &quot; which previously granted our request&quot;);
+        }
+
+<span class="fc bfc" id="L159" title="All 2 branches covered.">        return voteStates.put(remoteNodeId, State.REJECTED) == State.UNRECORDED;</span>
+    }
+
+    /**
+     * Record the current election has failed since we've either received sufficient rejecting voters or election timed out
+     */
+    public void startBackingOff(long currentTimeMs, long backoffDurationMs) {
+<span class="fc" id="L166">        this.backoffTimer.update(currentTimeMs);</span>
+<span class="fc" id="L167">        this.backoffTimer.reset(backoffDurationMs);</span>
+<span class="fc" id="L168">        this.isBackingOff = true;</span>
+<span class="fc" id="L169">    }</span>
+
+    /**
+     * Get the set of voters which have not been counted as granted or rejected yet.
+     *
+     * @return The set of unrecorded voters
+     */
+    public Set&lt;Integer&gt; unrecordedVoters() {
+<span class="fc" id="L177">        return votersInState(State.UNRECORDED);</span>
+    }
+
+    /**
+     * Get the set of voters that have granted our vote requests.
+     *
+     * @return The set of granting voters, which should always contain the ID of the candidate
+     */
+    public Set&lt;Integer&gt; grantingVoters() {
+<span class="fc" id="L186">        return votersInState(State.GRANTED);</span>
+    }
+
+    /**
+     * Get the set of voters that have rejected our candidacy.
+     *
+     * @return The set of rejecting voters
+     */
+    public Set&lt;Integer&gt; rejectingVoters() {
+<span class="fc" id="L195">        return votersInState(State.REJECTED);</span>
+    }
+
+    private Set&lt;Integer&gt; votersInState(State state) {
+<span class="fc" id="L199">        return voteStates.entrySet().stream()</span>
+<span class="fc bfc" id="L200" title="All 2 branches covered.">            .filter(entry -&gt; entry.getValue() == state)</span>
+<span class="fc" id="L201">            .map(Map.Entry::getKey)</span>
+<span class="fc" id="L202">            .collect(Collectors.toSet());</span>
+    }
+
+    public boolean hasElectionTimeoutExpired(long currentTimeMs) {
+<span class="fc" id="L206">        electionTimer.update(currentTimeMs);</span>
+<span class="fc" id="L207">        return electionTimer.isExpired();</span>
+    }
+
+    public boolean isBackoffComplete(long currentTimeMs) {
+<span class="fc" id="L211">        backoffTimer.update(currentTimeMs);</span>
+<span class="fc" id="L212">        return backoffTimer.isExpired();</span>
+    }
+
+    public long remainingBackoffMs(long currentTimeMs) {
+<span class="pc bpc" id="L216" title="1 of 2 branches missed.">        if (!isBackingOff) {</span>
+<span class="nc" id="L217">            throw new IllegalStateException(&quot;Candidate is not currently backing off&quot;);</span>
+        }
+<span class="fc" id="L219">        backoffTimer.update(currentTimeMs);</span>
+<span class="fc" id="L220">        return backoffTimer.remainingMs();</span>
+    }
+
+    public long remainingElectionTimeMs(long currentTimeMs) {
+<span class="fc" id="L224">        electionTimer.update(currentTimeMs);</span>
+<span class="fc" id="L225">        return electionTimer.remainingMs();</span>
+    }
+
+    @Override
+    public ElectionState election() {
+<span class="fc" id="L230">        return ElectionState.withVotedCandidate(epoch, localId, voteStates.keySet());</span>
+    }
+
+    @Override
+    public int epoch() {
+<span class="fc" id="L235">        return epoch;</span>
+    }
+
+    @Override
+    public Optional&lt;LogOffsetMetadata&gt; highWatermark() {
+<span class="fc" id="L240">        return highWatermark;</span>
+    }
+
+    @Override
+    public boolean canGrantVote(int candidateId, boolean isLogUpToDate) {
+        // Still reject vote request even candidateId = localId, Although the candidate votes for
+        // itself, this vote is implicit and not &quot;granted&quot;.
+<span class="fc" id="L247">        log.debug(&quot;Rejecting vote request from candidate {} since we are already candidate in epoch {}&quot;,</span>
+<span class="fc" id="L248">            candidateId, epoch);</span>
+<span class="fc" id="L249">        return false;</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="fc" id="L254">        return &quot;CandidateState(&quot; +</span>
+            &quot;localId=&quot; + localId +
+            &quot;, epoch=&quot; + epoch +
+            &quot;, retries=&quot; + retries +
+            &quot;, electionTimeoutMs=&quot; + electionTimeoutMs +
+            ')';
+    }
+
+    @Override
+    public String name() {
+<span class="nc" id="L264">        return &quot;Candidate&quot;;</span>
+    }
+
+    @Override
+<span class="fc" id="L268">    public void close() {}</span>
+
+<span class="fc" id="L270">    private enum State {</span>
+<span class="fc" id="L271">        UNRECORDED,</span>
+<span class="fc" id="L272">        GRANTED,</span>
+<span class="fc" id="L273">        REJECTED</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

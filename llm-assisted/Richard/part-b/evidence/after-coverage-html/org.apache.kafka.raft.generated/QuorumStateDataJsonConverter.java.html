@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>QuorumStateDataJsonConverter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft.generated</a> &gt; <span class="el_source">QuorumStateDataJsonConverter.java</span></div><h1>QuorumStateDataJsonConverter.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// THIS CODE IS AUTOMATICALLY GENERATED.  DO NOT EDIT.
+
+package org.apache.kafka.raft.generated;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.IntNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.LongNode;
+import com.fasterxml.jackson.databind.node.NullNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
+import java.util.ArrayList;
+import org.apache.kafka.common.protocol.MessageUtil;
+
+import static org.apache.kafka.raft.generated.QuorumStateData.*;
+
+<span class="nc" id="L35">public class QuorumStateDataJsonConverter {</span>
+    public static QuorumStateData read(JsonNode _node, short _version) {
+<span class="fc" id="L37">        QuorumStateData _object = new QuorumStateData();</span>
+<span class="fc" id="L38">        JsonNode _clusterIdNode = _node.get(&quot;clusterId&quot;);</span>
+<span class="pc bpc" id="L39" title="1 of 2 branches missed.">        if (_clusterIdNode == null) {</span>
+<span class="nc" id="L40">            throw new RuntimeException(&quot;QuorumStateData: unable to locate field 'clusterId', which is mandatory in version &quot; + _version);</span>
+        } else {
+<span class="pc bpc" id="L42" title="1 of 2 branches missed.">            if (!_clusterIdNode.isTextual()) {</span>
+<span class="nc" id="L43">                throw new RuntimeException(&quot;QuorumStateData expected a string type, but got &quot; + _node.getNodeType());</span>
+            }
+<span class="fc" id="L45">            _object.clusterId = _clusterIdNode.asText();</span>
+        }
+<span class="fc" id="L47">        JsonNode _leaderIdNode = _node.get(&quot;leaderId&quot;);</span>
+<span class="pc bpc" id="L48" title="1 of 2 branches missed.">        if (_leaderIdNode == null) {</span>
+<span class="nc" id="L49">            throw new RuntimeException(&quot;QuorumStateData: unable to locate field 'leaderId', which is mandatory in version &quot; + _version);</span>
+        } else {
+<span class="fc" id="L51">            _object.leaderId = MessageUtil.jsonNodeToInt(_leaderIdNode, &quot;QuorumStateData&quot;);</span>
+        }
+<span class="fc" id="L53">        JsonNode _leaderEpochNode = _node.get(&quot;leaderEpoch&quot;);</span>
+<span class="pc bpc" id="L54" title="1 of 2 branches missed.">        if (_leaderEpochNode == null) {</span>
+<span class="nc" id="L55">            throw new RuntimeException(&quot;QuorumStateData: unable to locate field 'leaderEpoch', which is mandatory in version &quot; + _version);</span>
+        } else {
+<span class="fc" id="L57">            _object.leaderEpoch = MessageUtil.jsonNodeToInt(_leaderEpochNode, &quot;QuorumStateData&quot;);</span>
+        }
+<span class="fc" id="L59">        JsonNode _votedIdNode = _node.get(&quot;votedId&quot;);</span>
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">        if (_votedIdNode == null) {</span>
+<span class="nc" id="L61">            throw new RuntimeException(&quot;QuorumStateData: unable to locate field 'votedId', which is mandatory in version &quot; + _version);</span>
+        } else {
+<span class="fc" id="L63">            _object.votedId = MessageUtil.jsonNodeToInt(_votedIdNode, &quot;QuorumStateData&quot;);</span>
+        }
+<span class="fc" id="L65">        JsonNode _appliedOffsetNode = _node.get(&quot;appliedOffset&quot;);</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">        if (_appliedOffsetNode == null) {</span>
+<span class="nc" id="L67">            throw new RuntimeException(&quot;QuorumStateData: unable to locate field 'appliedOffset', which is mandatory in version &quot; + _version);</span>
+        } else {
+<span class="fc" id="L69">            _object.appliedOffset = MessageUtil.jsonNodeToLong(_appliedOffsetNode, &quot;QuorumStateData&quot;);</span>
+        }
+<span class="fc" id="L71">        JsonNode _currentVotersNode = _node.get(&quot;currentVoters&quot;);</span>
+<span class="pc bpc" id="L72" title="1 of 2 branches missed.">        if (_currentVotersNode == null) {</span>
+<span class="nc" id="L73">            throw new RuntimeException(&quot;QuorumStateData: unable to locate field 'currentVoters', which is mandatory in version &quot; + _version);</span>
+        } else {
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">            if (_currentVotersNode.isNull()) {</span>
+<span class="nc" id="L76">                _object.currentVoters = null;</span>
+            } else {
+<span class="pc bpc" id="L78" title="1 of 2 branches missed.">                if (!_currentVotersNode.isArray()) {</span>
+<span class="nc" id="L79">                    throw new RuntimeException(&quot;QuorumStateData expected a JSON array, but got &quot; + _node.getNodeType());</span>
+                }
+<span class="fc" id="L81">                ArrayList&lt;Voter&gt; _collection = new ArrayList&lt;Voter&gt;(_currentVotersNode.size());</span>
+<span class="fc" id="L82">                _object.currentVoters = _collection;</span>
+<span class="fc bfc" id="L83" title="All 2 branches covered.">                for (JsonNode _element : _currentVotersNode) {</span>
+<span class="fc" id="L84">                    _collection.add(VoterJsonConverter.read(_element, _version));</span>
+<span class="fc" id="L85">                }</span>
+            }
+        }
+<span class="fc" id="L88">        return _object;</span>
+    }
+    public static JsonNode write(QuorumStateData _object, short _version, boolean _serializeRecords) {
+<span class="fc" id="L91">        ObjectNode _node = new ObjectNode(JsonNodeFactory.instance);</span>
+<span class="fc" id="L92">        _node.set(&quot;clusterId&quot;, new TextNode(_object.clusterId));</span>
+<span class="fc" id="L93">        _node.set(&quot;leaderId&quot;, new IntNode(_object.leaderId));</span>
+<span class="fc" id="L94">        _node.set(&quot;leaderEpoch&quot;, new IntNode(_object.leaderEpoch));</span>
+<span class="fc" id="L95">        _node.set(&quot;votedId&quot;, new IntNode(_object.votedId));</span>
+<span class="fc" id="L96">        _node.set(&quot;appliedOffset&quot;, new LongNode(_object.appliedOffset));</span>
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">        if (_object.currentVoters == null) {</span>
+<span class="nc" id="L98">            _node.set(&quot;currentVoters&quot;, NullNode.instance);</span>
+        } else {
+<span class="fc" id="L100">            ArrayNode _currentVotersArray = new ArrayNode(JsonNodeFactory.instance);</span>
+<span class="fc bfc" id="L101" title="All 2 branches covered.">            for (Voter _element : _object.currentVoters) {</span>
+<span class="fc" id="L102">                _currentVotersArray.add(VoterJsonConverter.write(_element, _version, _serializeRecords));</span>
+<span class="fc" id="L103">            }</span>
+<span class="fc" id="L104">            _node.set(&quot;currentVoters&quot;, _currentVotersArray);</span>
+        }
+<span class="fc" id="L106">        return _node;</span>
+    }
+    public static JsonNode write(QuorumStateData _object, short _version) {
+<span class="fc" id="L109">        return write(_object, _version, true);</span>
+    }
+    
+<span class="nc" id="L112">    public static class VoterJsonConverter {</span>
+        public static Voter read(JsonNode _node, short _version) {
+<span class="fc" id="L114">            Voter _object = new Voter();</span>
+<span class="fc" id="L115">            JsonNode _voterIdNode = _node.get(&quot;voterId&quot;);</span>
+<span class="pc bpc" id="L116" title="1 of 2 branches missed.">            if (_voterIdNode == null) {</span>
+<span class="nc" id="L117">                throw new RuntimeException(&quot;Voter: unable to locate field 'voterId', which is mandatory in version &quot; + _version);</span>
+            } else {
+<span class="fc" id="L119">                _object.voterId = MessageUtil.jsonNodeToInt(_voterIdNode, &quot;Voter&quot;);</span>
+            }
+<span class="fc" id="L121">            return _object;</span>
+        }
+        public static JsonNode write(Voter _object, short _version, boolean _serializeRecords) {
+<span class="fc" id="L124">            ObjectNode _node = new ObjectNode(JsonNodeFactory.instance);</span>
+<span class="fc" id="L125">            _node.set(&quot;voterId&quot;, new IntNode(_object.voterId));</span>
+<span class="fc" id="L126">            return _node;</span>
+        }
+        public static JsonNode write(Voter _object, short _version) {
+<span class="nc" id="L129">            return write(_object, _version, true);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

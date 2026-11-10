@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ElectionState.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft</a> &gt; <span class="el_source">ElectionState.java</span></div><h1>ElectionState.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft;
+
+import java.util.OptionalInt;
+import java.util.Set;
+
+/**
+ * Encapsulate election state stored on disk after every state change.
+ */
+public class ElectionState {
+    public final int epoch;
+    public final OptionalInt leaderIdOpt;
+    public final OptionalInt votedIdOpt;
+    private final Set&lt;Integer&gt; voters;
+
+    ElectionState(int epoch,
+                  OptionalInt leaderIdOpt,
+                  OptionalInt votedIdOpt,
+<span class="fc" id="L34">                  Set&lt;Integer&gt; voters) {</span>
+<span class="fc" id="L35">        this.epoch = epoch;</span>
+<span class="fc" id="L36">        this.leaderIdOpt = leaderIdOpt;</span>
+<span class="fc" id="L37">        this.votedIdOpt = votedIdOpt;</span>
+<span class="fc" id="L38">        this.voters = voters;</span>
+<span class="fc" id="L39">    }</span>
+
+    public static ElectionState withVotedCandidate(int epoch, int votedId, Set&lt;Integer&gt; voters) {
+<span class="pc bpc" id="L42" title="1 of 2 branches missed.">        if (votedId &lt; 0)</span>
+<span class="nc" id="L43">            throw new IllegalArgumentException(&quot;Illegal voted Id &quot; + votedId + &quot;: must be non-negative&quot;);</span>
+<span class="pc bpc" id="L44" title="1 of 2 branches missed.">        if (!voters.contains(votedId))</span>
+<span class="nc" id="L45">            throw new IllegalArgumentException(&quot;Voted candidate with id &quot; + votedId + &quot; is not among the valid voters&quot;);</span>
+<span class="fc" id="L46">        return new ElectionState(epoch, OptionalInt.empty(), OptionalInt.of(votedId), voters);</span>
+    }
+
+    public static ElectionState withElectedLeader(int epoch, int leaderId, Set&lt;Integer&gt; voters) {
+<span class="pc bpc" id="L50" title="1 of 2 branches missed.">        if (leaderId &lt; 0)</span>
+<span class="nc" id="L51">            throw new IllegalArgumentException(&quot;Illegal leader Id &quot; + leaderId + &quot;: must be non-negative&quot;);</span>
+<span class="pc bpc" id="L52" title="1 of 2 branches missed.">        if (!voters.contains(leaderId))</span>
+<span class="nc" id="L53">            throw new IllegalArgumentException(&quot;Leader with id &quot; + leaderId + &quot; is not among the valid voters&quot;);</span>
+<span class="fc" id="L54">        return new ElectionState(epoch, OptionalInt.of(leaderId), OptionalInt.empty(), voters);</span>
+    }
+
+    public static ElectionState withUnknownLeader(int epoch, Set&lt;Integer&gt; voters) {
+<span class="fc" id="L58">        return new ElectionState(epoch, OptionalInt.empty(), OptionalInt.empty(), voters);</span>
+    }
+
+    public boolean isLeader(int nodeId) {
+<span class="pc bpc" id="L62" title="1 of 2 branches missed.">        if (nodeId &lt; 0)</span>
+<span class="nc" id="L63">            throw new IllegalArgumentException(&quot;Invalid negative nodeId: &quot; + nodeId);</span>
+<span class="fc bfc" id="L64" title="All 2 branches covered.">        return leaderIdOpt.orElse(-1) == nodeId;</span>
+    }
+
+    public boolean isVotedCandidate(int nodeId) {
+<span class="pc bpc" id="L68" title="1 of 2 branches missed.">        if (nodeId &lt; 0)</span>
+<span class="nc" id="L69">            throw new IllegalArgumentException(&quot;Invalid negative nodeId: &quot; + nodeId);</span>
+<span class="fc bfc" id="L70" title="All 2 branches covered.">        return votedIdOpt.orElse(-1) == nodeId;</span>
+    }
+
+    public int leaderId() {
+<span class="pc bpc" id="L74" title="1 of 2 branches missed.">        if (!leaderIdOpt.isPresent())</span>
+<span class="nc" id="L75">            throw new IllegalStateException(&quot;Attempt to access nil leaderId&quot;);</span>
+<span class="fc" id="L76">        return leaderIdOpt.getAsInt();</span>
+    }
+
+    public int votedId() {
+<span class="pc bpc" id="L80" title="1 of 2 branches missed.">        if (!votedIdOpt.isPresent())</span>
+<span class="nc" id="L81">            throw new IllegalStateException(&quot;Attempt to access nil votedId&quot;);</span>
+<span class="fc" id="L82">        return votedIdOpt.getAsInt();</span>
+    }
+
+    public Set&lt;Integer&gt; voters() {
+<span class="fc" id="L86">        return voters;</span>
+    }
+
+    public boolean hasLeader() {
+<span class="fc" id="L90">        return leaderIdOpt.isPresent();</span>
+    }
+
+    public boolean hasVoted() {
+<span class="fc" id="L94">        return votedIdOpt.isPresent();</span>
+    }
+
+
+    @Override
+    public String toString() {
+<span class="fc" id="L100">        return &quot;Election(epoch=&quot; + epoch +</span>
+                &quot;, leaderIdOpt=&quot; + leaderIdOpt +
+                &quot;, votedIdOpt=&quot; + votedIdOpt +
+                ')';
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="pc bpc" id="L108" title="1 of 2 branches missed.">        if (this == o) return true;</span>
+<span class="pc bpc" id="L109" title="2 of 4 branches missed.">        if (o == null || getClass() != o.getClass()) return false;</span>
+
+<span class="fc" id="L111">        ElectionState that = (ElectionState) o;</span>
+
+<span class="fc bfc" id="L113" title="All 2 branches covered.">        if (epoch != that.epoch) return false;</span>
+<span class="fc bfc" id="L114" title="All 2 branches covered.">        if (!leaderIdOpt.equals(that.leaderIdOpt)) return false;</span>
+<span class="fc" id="L115">        return votedIdOpt.equals(that.votedIdOpt);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L120">        int result = epoch;</span>
+<span class="nc" id="L121">        result = 31 * result + leaderIdOpt.hashCode();</span>
+<span class="nc" id="L122">        result = 31 * result + votedIdOpt.hashCode();</span>
+<span class="nc" id="L123">        return result;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

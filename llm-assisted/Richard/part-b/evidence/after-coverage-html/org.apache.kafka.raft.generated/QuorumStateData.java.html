@@ -1,0 +1,462 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>QuorumStateData.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft.generated</a> &gt; <span class="el_source">QuorumStateData.java</span></div><h1>QuorumStateData.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// THIS CODE IS AUTOMATICALLY GENERATED.  DO NOT EDIT.
+
+package org.apache.kafka.raft.generated;
+
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import org.apache.kafka.common.protocol.ApiMessage;
+import org.apache.kafka.common.protocol.Message;
+import org.apache.kafka.common.protocol.MessageSizeAccumulator;
+import org.apache.kafka.common.protocol.MessageUtil;
+import org.apache.kafka.common.protocol.ObjectSerializationCache;
+import org.apache.kafka.common.protocol.Readable;
+import org.apache.kafka.common.protocol.Writable;
+import org.apache.kafka.common.protocol.types.CompactArrayOf;
+import org.apache.kafka.common.protocol.types.Field;
+import org.apache.kafka.common.protocol.types.RawTaggedField;
+import org.apache.kafka.common.protocol.types.RawTaggedFieldWriter;
+import org.apache.kafka.common.protocol.types.Schema;
+import org.apache.kafka.common.protocol.types.Type;
+import org.apache.kafka.common.utils.ByteUtils;
+
+import static org.apache.kafka.common.protocol.types.Field.TaggedFieldsSection;
+
+
+public class QuorumStateData implements ApiMessage {
+    String clusterId;
+    int leaderId;
+    int leaderEpoch;
+    int votedId;
+    long appliedOffset;
+    List&lt;Voter&gt; currentVoters;
+    private List&lt;RawTaggedField&gt; _unknownTaggedFields;
+    
+<span class="fc" id="L52">    public static final Schema SCHEMA_0 =</span>
+        new Schema(
+            new Field(&quot;cluster_id&quot;, Type.COMPACT_STRING, &quot;&quot;),
+            new Field(&quot;leader_id&quot;, Type.INT32, &quot;&quot;),
+            new Field(&quot;leader_epoch&quot;, Type.INT32, &quot;&quot;),
+            new Field(&quot;voted_id&quot;, Type.INT32, &quot;&quot;),
+            new Field(&quot;applied_offset&quot;, Type.INT64, &quot;&quot;),
+<span class="fc" id="L59">            new Field(&quot;current_voters&quot;, CompactArrayOf.nullable(Voter.SCHEMA_0), &quot;&quot;),</span>
+<span class="fc" id="L60">            TaggedFieldsSection.of(</span>
+            )
+        );
+    
+<span class="fc" id="L64">    public static final Schema[] SCHEMAS = new Schema[] {</span>
+        SCHEMA_0
+    };
+    
+    public static final short LOWEST_SUPPORTED_VERSION = 0;
+    public static final short HIGHEST_SUPPORTED_VERSION = 0;
+    
+<span class="nc" id="L71">    public QuorumStateData(Readable _readable, short _version) {</span>
+<span class="nc" id="L72">        read(_readable, _version);</span>
+<span class="nc" id="L73">    }</span>
+    
+<span class="fc" id="L75">    public QuorumStateData() {</span>
+<span class="fc" id="L76">        this.clusterId = &quot;&quot;;</span>
+<span class="fc" id="L77">        this.leaderId = -1;</span>
+<span class="fc" id="L78">        this.leaderEpoch = -1;</span>
+<span class="fc" id="L79">        this.votedId = -1;</span>
+<span class="fc" id="L80">        this.appliedOffset = 0L;</span>
+<span class="fc" id="L81">        this.currentVoters = new ArrayList&lt;Voter&gt;(0);</span>
+<span class="fc" id="L82">    }</span>
+    
+    @Override
+    public short apiKey() {
+<span class="nc" id="L86">        return -1;</span>
+    }
+    
+    @Override
+    public short lowestSupportedVersion() {
+<span class="nc" id="L91">        return 0;</span>
+    }
+    
+    @Override
+    public short highestSupportedVersion() {
+<span class="fc" id="L96">        return 0;</span>
+    }
+    
+    @Override
+    public void read(Readable _readable, short _version) {
+        {
+            int length;
+<span class="nc" id="L103">            length = _readable.readUnsignedVarint() - 1;</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">            if (length &lt; 0) {</span>
+<span class="nc" id="L105">                throw new RuntimeException(&quot;non-nullable field clusterId was serialized as null&quot;);</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">            } else if (length &gt; 0x7fff) {</span>
+<span class="nc" id="L107">                throw new RuntimeException(&quot;string field clusterId had invalid length &quot; + length);</span>
+            } else {
+<span class="nc" id="L109">                this.clusterId = _readable.readString(length);</span>
+            }
+        }
+<span class="nc" id="L112">        this.leaderId = _readable.readInt();</span>
+<span class="nc" id="L113">        this.leaderEpoch = _readable.readInt();</span>
+<span class="nc" id="L114">        this.votedId = _readable.readInt();</span>
+<span class="nc" id="L115">        this.appliedOffset = _readable.readLong();</span>
+        {
+            int arrayLength;
+<span class="nc" id="L118">            arrayLength = _readable.readUnsignedVarint() - 1;</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">            if (arrayLength &lt; 0) {</span>
+<span class="nc" id="L120">                this.currentVoters = null;</span>
+            } else {
+<span class="nc" id="L122">                ArrayList&lt;Voter&gt; newCollection = new ArrayList&lt;&gt;(arrayLength);</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">                for (int i = 0; i &lt; arrayLength; i++) {</span>
+<span class="nc" id="L124">                    newCollection.add(new Voter(_readable, _version));</span>
+                }
+<span class="nc" id="L126">                this.currentVoters = newCollection;</span>
+            }
+        }
+<span class="nc" id="L129">        this._unknownTaggedFields = null;</span>
+<span class="nc" id="L130">        int _numTaggedFields = _readable.readUnsignedVarint();</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">        for (int _i = 0; _i &lt; _numTaggedFields; _i++) {</span>
+<span class="nc" id="L132">            int _tag = _readable.readUnsignedVarint();</span>
+<span class="nc" id="L133">            int _size = _readable.readUnsignedVarint();</span>
+<span class="nc" id="L134">            switch (_tag) {</span>
+                default:
+<span class="nc" id="L136">                    this._unknownTaggedFields = _readable.readUnknownTaggedField(this._unknownTaggedFields, _tag, _size);</span>
+                    break;
+            }
+        }
+<span class="nc" id="L140">    }</span>
+    
+    @Override
+    public void write(Writable _writable, ObjectSerializationCache _cache, short _version) {
+<span class="nc" id="L144">        doWrite(_writable, _cache, _version);</span>
+<span class="nc" id="L145">    }</span>
+    
+    public void doWrite(Writable _writable, ObjectSerializationCache _cache, short _version) {
+<span class="nc" id="L148">        int _numTaggedFields = 0;</span>
+        {
+<span class="nc" id="L150">            byte[] _stringBytes = _cache.getSerializedValue(clusterId);</span>
+<span class="nc" id="L151">            _writable.writeUnsignedVarint(_stringBytes.length + 1);</span>
+<span class="nc" id="L152">            _writable.writeByteArray(_stringBytes);</span>
+        }
+<span class="nc" id="L154">        _writable.writeInt(leaderId);</span>
+<span class="nc" id="L155">        _writable.writeInt(leaderEpoch);</span>
+<span class="nc" id="L156">        _writable.writeInt(votedId);</span>
+<span class="nc" id="L157">        _writable.writeLong(appliedOffset);</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        if (currentVoters == null) {</span>
+<span class="nc" id="L159">            _writable.writeUnsignedVarint(0);</span>
+        } else {
+<span class="nc" id="L161">            _writable.writeUnsignedVarint(currentVoters.size() + 1);</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">            for (Voter currentVotersElement : currentVoters) {</span>
+<span class="nc" id="L163">                currentVotersElement.write(_writable, _cache, _version);</span>
+<span class="nc" id="L164">            }</span>
+        }
+<span class="nc" id="L166">        RawTaggedFieldWriter _rawWriter = RawTaggedFieldWriter.forFields(_unknownTaggedFields);</span>
+<span class="nc" id="L167">        _numTaggedFields += _rawWriter.numFields();</span>
+<span class="nc" id="L168">        _writable.writeUnsignedVarint(_numTaggedFields);</span>
+<span class="nc" id="L169">        _rawWriter.writeRawTags(_writable, Integer.MAX_VALUE);</span>
+<span class="nc" id="L170">    }</span>
+    
+    @Override
+    public void addSize(MessageSizeAccumulator _size, ObjectSerializationCache _cache, short _version) {
+<span class="nc" id="L174">        int _numTaggedFields = 0;</span>
+        {
+<span class="nc" id="L176">            byte[] _stringBytes = clusterId.getBytes(StandardCharsets.UTF_8);</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">            if (_stringBytes.length &gt; 0x7fff) {</span>
+<span class="nc" id="L178">                throw new RuntimeException(&quot;'clusterId' field is too long to be serialized&quot;);</span>
+            }
+<span class="nc" id="L180">            _cache.cacheSerializedValue(clusterId, _stringBytes);</span>
+<span class="nc" id="L181">            _size.addBytes(_stringBytes.length + ByteUtils.sizeOfUnsignedVarint(_stringBytes.length + 1));</span>
+        }
+<span class="nc" id="L183">        _size.addBytes(4);</span>
+<span class="nc" id="L184">        _size.addBytes(4);</span>
+<span class="nc" id="L185">        _size.addBytes(4);</span>
+<span class="nc" id="L186">        _size.addBytes(8);</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">        if (currentVoters == null) {</span>
+<span class="nc" id="L188">            _size.addBytes(1);</span>
+        } else {
+<span class="nc" id="L190">            _size.addBytes(ByteUtils.sizeOfUnsignedVarint(currentVoters.size() + 1));</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">            for (Voter currentVotersElement : currentVoters) {</span>
+<span class="nc" id="L192">                currentVotersElement.addSize(_size, _cache, _version);</span>
+<span class="nc" id="L193">            }</span>
+        }
+<span class="nc bnc" id="L195" title="All 2 branches missed.">        if (_unknownTaggedFields != null) {</span>
+<span class="nc" id="L196">            _numTaggedFields += _unknownTaggedFields.size();</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">            for (RawTaggedField _field : _unknownTaggedFields) {</span>
+<span class="nc" id="L198">                _size.addBytes(ByteUtils.sizeOfUnsignedVarint(_field.tag()));</span>
+<span class="nc" id="L199">                _size.addBytes(ByteUtils.sizeOfUnsignedVarint(_field.size()));</span>
+<span class="nc" id="L200">                _size.addBytes(_field.size());</span>
+<span class="nc" id="L201">            }</span>
+        }
+<span class="nc" id="L203">        _size.addBytes(ByteUtils.sizeOfUnsignedVarint(_numTaggedFields));</span>
+<span class="nc" id="L204">    }</span>
+    
+    @Override
+    public boolean equals(Object obj) {
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        if (!(obj instanceof QuorumStateData)) return false;</span>
+<span class="nc" id="L209">        QuorumStateData other = (QuorumStateData) obj;</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">        if (this.clusterId == null) {</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">            if (other.clusterId != null) return false;</span>
+        } else {
+<span class="nc bnc" id="L213" title="All 2 branches missed.">            if (!this.clusterId.equals(other.clusterId)) return false;</span>
+        }
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        if (leaderId != other.leaderId) return false;</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">        if (leaderEpoch != other.leaderEpoch) return false;</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">        if (votedId != other.votedId) return false;</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        if (appliedOffset != other.appliedOffset) return false;</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        if (this.currentVoters == null) {</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            if (other.currentVoters != null) return false;</span>
+        } else {
+<span class="nc bnc" id="L222" title="All 2 branches missed.">            if (!this.currentVoters.equals(other.currentVoters)) return false;</span>
+        }
+<span class="nc" id="L224">        return MessageUtil.compareRawTaggedFields(_unknownTaggedFields, other._unknownTaggedFields);</span>
+    }
+    
+    @Override
+    public int hashCode() {
+<span class="nc" id="L229">        int hashCode = 0;</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">        hashCode = 31 * hashCode + (clusterId == null ? 0 : clusterId.hashCode());</span>
+<span class="nc" id="L231">        hashCode = 31 * hashCode + leaderId;</span>
+<span class="nc" id="L232">        hashCode = 31 * hashCode + leaderEpoch;</span>
+<span class="nc" id="L233">        hashCode = 31 * hashCode + votedId;</span>
+<span class="nc" id="L234">        hashCode = 31 * hashCode + ((int) (appliedOffset &gt;&gt; 32) ^ (int) appliedOffset);</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">        hashCode = 31 * hashCode + (currentVoters == null ? 0 : currentVoters.hashCode());</span>
+<span class="nc" id="L236">        return hashCode;</span>
+    }
+    
+    @Override
+    public QuorumStateData duplicate() {
+<span class="nc" id="L241">        QuorumStateData _duplicate = new QuorumStateData();</span>
+<span class="nc" id="L242">        _duplicate.clusterId = clusterId;</span>
+<span class="nc" id="L243">        _duplicate.leaderId = leaderId;</span>
+<span class="nc" id="L244">        _duplicate.leaderEpoch = leaderEpoch;</span>
+<span class="nc" id="L245">        _duplicate.votedId = votedId;</span>
+<span class="nc" id="L246">        _duplicate.appliedOffset = appliedOffset;</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">        if (currentVoters == null) {</span>
+<span class="nc" id="L248">            _duplicate.currentVoters = null;</span>
+        } else {
+<span class="nc" id="L250">            ArrayList&lt;Voter&gt; newCurrentVoters = new ArrayList&lt;Voter&gt;(currentVoters.size());</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">            for (Voter _element : currentVoters) {</span>
+<span class="nc" id="L252">                newCurrentVoters.add(_element.duplicate());</span>
+<span class="nc" id="L253">            }</span>
+<span class="nc" id="L254">            _duplicate.currentVoters = newCurrentVoters;</span>
+        }
+<span class="nc" id="L256">        return _duplicate;</span>
+    }
+    
+    @Override
+    public String toString() {
+<span class="nc" id="L261">        return &quot;QuorumStateData(&quot;</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">            + &quot;clusterId=&quot; + ((clusterId == null) ? &quot;null&quot; : &quot;'&quot; + clusterId.toString() + &quot;'&quot;)</span>
+            + &quot;, leaderId=&quot; + leaderId
+            + &quot;, leaderEpoch=&quot; + leaderEpoch
+            + &quot;, votedId=&quot; + votedId
+            + &quot;, appliedOffset=&quot; + appliedOffset
+<span class="nc bnc" id="L267" title="All 2 branches missed.">            + &quot;, currentVoters=&quot; + ((currentVoters == null) ? &quot;null&quot; : MessageUtil.deepToString(currentVoters.iterator()))</span>
+            + &quot;)&quot;;
+    }
+    
+    public String clusterId() {
+<span class="nc" id="L272">        return this.clusterId;</span>
+    }
+    
+    public int leaderId() {
+<span class="fc" id="L276">        return this.leaderId;</span>
+    }
+    
+    public int leaderEpoch() {
+<span class="fc" id="L280">        return this.leaderEpoch;</span>
+    }
+    
+    public int votedId() {
+<span class="fc" id="L284">        return this.votedId;</span>
+    }
+    
+    public long appliedOffset() {
+<span class="nc" id="L288">        return this.appliedOffset;</span>
+    }
+    
+    public List&lt;Voter&gt; currentVoters() {
+<span class="fc" id="L292">        return this.currentVoters;</span>
+    }
+    
+    @Override
+    public List&lt;RawTaggedField&gt; unknownTaggedFields() {
+<span class="nc bnc" id="L297" title="All 2 branches missed.">        if (_unknownTaggedFields == null) {</span>
+<span class="nc" id="L298">            _unknownTaggedFields = new ArrayList&lt;&gt;(0);</span>
+        }
+<span class="nc" id="L300">        return _unknownTaggedFields;</span>
+    }
+    
+    public QuorumStateData setClusterId(String v) {
+<span class="nc" id="L304">        this.clusterId = v;</span>
+<span class="nc" id="L305">        return this;</span>
+    }
+    
+    public QuorumStateData setLeaderId(int v) {
+<span class="fc" id="L309">        this.leaderId = v;</span>
+<span class="fc" id="L310">        return this;</span>
+    }
+    
+    public QuorumStateData setLeaderEpoch(int v) {
+<span class="fc" id="L314">        this.leaderEpoch = v;</span>
+<span class="fc" id="L315">        return this;</span>
+    }
+    
+    public QuorumStateData setVotedId(int v) {
+<span class="fc" id="L319">        this.votedId = v;</span>
+<span class="fc" id="L320">        return this;</span>
+    }
+    
+    public QuorumStateData setAppliedOffset(long v) {
+<span class="nc" id="L324">        this.appliedOffset = v;</span>
+<span class="nc" id="L325">        return this;</span>
+    }
+    
+    public QuorumStateData setCurrentVoters(List&lt;Voter&gt; v) {
+<span class="fc" id="L329">        this.currentVoters = v;</span>
+<span class="fc" id="L330">        return this;</span>
+    }
+    
+    public static class Voter implements Message {
+        int voterId;
+        private List&lt;RawTaggedField&gt; _unknownTaggedFields;
+        
+<span class="fc" id="L337">        public static final Schema SCHEMA_0 =</span>
+            new Schema(
+                new Field(&quot;voter_id&quot;, Type.INT32, &quot;&quot;),
+<span class="fc" id="L340">                TaggedFieldsSection.of(</span>
+                )
+            );
+        
+<span class="fc" id="L344">        public static final Schema[] SCHEMAS = new Schema[] {</span>
+            SCHEMA_0
+        };
+        
+        public static final short LOWEST_SUPPORTED_VERSION = 0;
+        public static final short HIGHEST_SUPPORTED_VERSION = 0;
+        
+<span class="nc" id="L351">        public Voter(Readable _readable, short _version) {</span>
+<span class="nc" id="L352">            read(_readable, _version);</span>
+<span class="nc" id="L353">        }</span>
+        
+<span class="fc" id="L355">        public Voter() {</span>
+<span class="fc" id="L356">            this.voterId = 0;</span>
+<span class="fc" id="L357">        }</span>
+        
+        
+        @Override
+        public short lowestSupportedVersion() {
+<span class="nc" id="L362">            return 0;</span>
+        }
+        
+        @Override
+        public short highestSupportedVersion() {
+<span class="nc" id="L367">            return 32767;</span>
+        }
+        
+        @Override
+        public void read(Readable _readable, short _version) {
+<span class="nc" id="L372">            this.voterId = _readable.readInt();</span>
+<span class="nc" id="L373">            this._unknownTaggedFields = null;</span>
+<span class="nc" id="L374">            int _numTaggedFields = _readable.readUnsignedVarint();</span>
+<span class="nc bnc" id="L375" title="All 2 branches missed.">            for (int _i = 0; _i &lt; _numTaggedFields; _i++) {</span>
+<span class="nc" id="L376">                int _tag = _readable.readUnsignedVarint();</span>
+<span class="nc" id="L377">                int _size = _readable.readUnsignedVarint();</span>
+<span class="nc" id="L378">                switch (_tag) {</span>
+                    default:
+<span class="nc" id="L380">                        this._unknownTaggedFields = _readable.readUnknownTaggedField(this._unknownTaggedFields, _tag, _size);</span>
+                        break;
+                }
+            }
+<span class="nc" id="L384">        }</span>
+        
+        @Override
+        public void write(Writable _writable, ObjectSerializationCache _cache, short _version) {
+<span class="nc" id="L388">            doWrite(_writable, _cache, _version);</span>
+<span class="nc" id="L389">        }</span>
+        
+        public void doWrite(Writable _writable, ObjectSerializationCache _cache, short _version) {
+<span class="nc" id="L392">            int _numTaggedFields = 0;</span>
+<span class="nc" id="L393">            _writable.writeInt(voterId);</span>
+<span class="nc" id="L394">            RawTaggedFieldWriter _rawWriter = RawTaggedFieldWriter.forFields(_unknownTaggedFields);</span>
+<span class="nc" id="L395">            _numTaggedFields += _rawWriter.numFields();</span>
+<span class="nc" id="L396">            _writable.writeUnsignedVarint(_numTaggedFields);</span>
+<span class="nc" id="L397">            _rawWriter.writeRawTags(_writable, Integer.MAX_VALUE);</span>
+<span class="nc" id="L398">        }</span>
+        
+        @Override
+        public void addSize(MessageSizeAccumulator _size, ObjectSerializationCache _cache, short _version) {
+<span class="nc" id="L402">            int _numTaggedFields = 0;</span>
+<span class="nc" id="L403">            _size.addBytes(4);</span>
+<span class="nc bnc" id="L404" title="All 2 branches missed.">            if (_unknownTaggedFields != null) {</span>
+<span class="nc" id="L405">                _numTaggedFields += _unknownTaggedFields.size();</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">                for (RawTaggedField _field : _unknownTaggedFields) {</span>
+<span class="nc" id="L407">                    _size.addBytes(ByteUtils.sizeOfUnsignedVarint(_field.tag()));</span>
+<span class="nc" id="L408">                    _size.addBytes(ByteUtils.sizeOfUnsignedVarint(_field.size()));</span>
+<span class="nc" id="L409">                    _size.addBytes(_field.size());</span>
+<span class="nc" id="L410">                }</span>
+            }
+<span class="nc" id="L412">            _size.addBytes(ByteUtils.sizeOfUnsignedVarint(_numTaggedFields));</span>
+<span class="nc" id="L413">        }</span>
+        
+        @Override
+        public boolean equals(Object obj) {
+<span class="nc bnc" id="L417" title="All 2 branches missed.">            if (!(obj instanceof Voter)) return false;</span>
+<span class="nc" id="L418">            Voter other = (Voter) obj;</span>
+<span class="nc bnc" id="L419" title="All 2 branches missed.">            if (voterId != other.voterId) return false;</span>
+<span class="nc" id="L420">            return MessageUtil.compareRawTaggedFields(_unknownTaggedFields, other._unknownTaggedFields);</span>
+        }
+        
+        @Override
+        public int hashCode() {
+<span class="nc" id="L425">            int hashCode = 0;</span>
+<span class="nc" id="L426">            hashCode = 31 * hashCode + voterId;</span>
+<span class="nc" id="L427">            return hashCode;</span>
+        }
+        
+        @Override
+        public Voter duplicate() {
+<span class="nc" id="L432">            Voter _duplicate = new Voter();</span>
+<span class="nc" id="L433">            _duplicate.voterId = voterId;</span>
+<span class="nc" id="L434">            return _duplicate;</span>
+        }
+        
+        @Override
+        public String toString() {
+<span class="nc" id="L439">            return &quot;Voter(&quot;</span>
+                + &quot;voterId=&quot; + voterId
+                + &quot;)&quot;;
+        }
+        
+        public int voterId() {
+<span class="fc" id="L445">            return this.voterId;</span>
+        }
+        
+        @Override
+        public List&lt;RawTaggedField&gt; unknownTaggedFields() {
+<span class="nc bnc" id="L450" title="All 2 branches missed.">            if (_unknownTaggedFields == null) {</span>
+<span class="nc" id="L451">                _unknownTaggedFields = new ArrayList&lt;&gt;(0);</span>
+            }
+<span class="nc" id="L453">            return _unknownTaggedFields;</span>
+        }
+        
+        public Voter setVoterId(int v) {
+<span class="fc" id="L457">            this.voterId = v;</span>
+<span class="fc" id="L458">            return this;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

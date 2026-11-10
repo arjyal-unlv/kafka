@@ -1,0 +1,569 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>QuorumState.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft</a> &gt; <span class="el_source">QuorumState.java</span></div><h1>QuorumState.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft;
+
+import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.raft.internals.BatchAccumulator;
+import org.slf4j.Logger;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.Random;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * This class is responsible for managing the current state of this node and ensuring
+ * only valid state transitions. Below we define the possible state transitions and
+ * how they are triggered:
+ *
+ * Unattached|Resigned transitions to:
+ *    Unattached: After learning of a new election with a higher epoch
+ *    Voted: After granting a vote to a candidate
+ *    Candidate: After expiration of the election timeout
+ *    Follower: After discovering a leader with an equal or larger epoch
+ *
+ * Voted transitions to:
+ *    Unattached: After learning of a new election with a higher epoch
+ *    Candidate: After expiration of the election timeout
+ *
+ * Candidate transitions to:
+ *    Unattached: After learning of a new election with a higher epoch
+ *    Candidate: After expiration of the election timeout
+ *    Leader: After receiving a majority of votes
+ *
+ * Leader transitions to:
+ *    Unattached: After learning of a new election with a higher epoch
+ *    Resigned: When shutting down gracefully
+ *
+ * Follower transitions to:
+ *    Unattached: After learning of a new election with a higher epoch
+ *    Candidate: After expiration of the fetch timeout
+ *    Follower: After discovering a leader with a larger epoch
+ *
+ * Observers follow a simpler state machine. The Voted/Candidate/Leader/Resigned
+ * states are not possible for observers, so the only transitions that are possible
+ * are between Unattached and Follower.
+ *
+ * Unattached transitions to:
+ *    Unattached: After learning of a new election with a higher epoch
+ *    Follower: After discovering a leader with an equal or larger epoch
+ *
+ * Follower transitions to:
+ *    Unattached: After learning of a new election with a higher epoch
+ *    Follower: After discovering a leader with a larger epoch
+ *
+ */
+public class QuorumState {
+    private final OptionalInt localId;
+    private final Time time;
+    private final Logger log;
+    private final QuorumStateStore store;
+    private final Set&lt;Integer&gt; voters;
+    private final Random random;
+    private final int electionTimeoutMs;
+    private final int fetchTimeoutMs;
+    private final LogContext logContext;
+
+    private volatile EpochState state;
+
+    public QuorumState(OptionalInt localId,
+                       Set&lt;Integer&gt; voters,
+                       int electionTimeoutMs,
+                       int fetchTimeoutMs,
+                       QuorumStateStore store,
+                       Time time,
+                       LogContext logContext,
+<span class="fc" id="L97">                       Random random) {</span>
+<span class="fc" id="L98">        this.localId = localId;</span>
+<span class="fc" id="L99">        this.voters = new HashSet&lt;&gt;(voters);</span>
+<span class="fc" id="L100">        this.electionTimeoutMs = electionTimeoutMs;</span>
+<span class="fc" id="L101">        this.fetchTimeoutMs = fetchTimeoutMs;</span>
+<span class="fc" id="L102">        this.store = store;</span>
+<span class="fc" id="L103">        this.time = time;</span>
+<span class="fc" id="L104">        this.log = logContext.logger(QuorumState.class);</span>
+<span class="fc" id="L105">        this.random = random;</span>
+<span class="fc" id="L106">        this.logContext = logContext;</span>
+<span class="fc" id="L107">    }</span>
+
+    public void initialize(OffsetAndEpoch logEndOffsetAndEpoch) throws IllegalStateException {
+        // We initialize in whatever state we were in on shutdown. If we were a leader
+        // or candidate, probably an election was held, but we will find out about it
+        // when we send Vote or BeginEpoch requests.
+
+        ElectionState election;
+        try {
+<span class="fc" id="L116">            election = store.readElectionState();</span>
+<span class="fc bfc" id="L117" title="All 2 branches covered.">            if (election == null) {</span>
+<span class="fc" id="L118">                election = ElectionState.withUnknownLeader(0, voters);</span>
+            }
+<span class="nc" id="L120">        } catch (final UncheckedIOException e) {</span>
+            // For exceptions during state file loading (missing or not readable),
+            // we could assume the file is corrupted already and should be cleaned up.
+<span class="nc" id="L123">            log.warn(&quot;Clearing local quorum state store after error loading state {}&quot;,</span>
+<span class="nc" id="L124">                store.toString(), e);</span>
+<span class="nc" id="L125">            store.clear();</span>
+<span class="nc" id="L126">            election = ElectionState.withUnknownLeader(0, voters);</span>
+<span class="fc" id="L127">        }</span>
+
+        final EpochState initialState;
+<span class="pc bpc" id="L130" title="1 of 4 branches missed.">        if (!election.voters().isEmpty() &amp;&amp; !voters.equals(election.voters())) {</span>
+<span class="fc" id="L131">            throw new IllegalStateException(&quot;Configured voter set: &quot; + voters</span>
+<span class="fc" id="L132">                + &quot; is different from the voter set read from the state file: &quot; + election.voters()</span>
+                + &quot;. Check if the quorum configuration is up to date, &quot;
+                + &quot;or wipe out the local state file if necessary&quot;);
+<span class="fc bfc" id="L135" title="All 4 branches covered.">        } else if (election.hasVoted() &amp;&amp; !isVoter()) {</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">            String localIdDescription = localId.isPresent() ?</span>
+<span class="fc" id="L137">                localId.getAsInt() + &quot; is not a voter&quot; :</span>
+<span class="fc" id="L138">                &quot;is undefined&quot;;</span>
+<span class="fc" id="L139">            throw new IllegalStateException(&quot;Initialized quorum state &quot; + election</span>
+                + &quot; with a voted candidate, which indicates this node was previously &quot;
+                + &quot; a voter, but the local id &quot; + localIdDescription);
+<span class="fc bfc" id="L142" title="All 2 branches covered.">        } else if (election.epoch &lt; logEndOffsetAndEpoch.epoch) {</span>
+<span class="fc" id="L143">            log.warn(&quot;Epoch from quorum-state file is {}, which is &quot; +</span>
+                &quot;smaller than last written epoch {} in the log&quot;,
+<span class="fc" id="L145">                election.epoch, logEndOffsetAndEpoch.epoch);</span>
+<span class="fc" id="L146">            initialState = new UnattachedState(</span>
+                time,
+                logEndOffsetAndEpoch.epoch,
+                voters,
+<span class="fc" id="L150">                Optional.empty(),</span>
+<span class="fc" id="L151">                randomElectionTimeoutMs(),</span>
+                logContext
+            );
+<span class="fc bfc" id="L154" title="All 4 branches covered.">        } else if (localId.isPresent() &amp;&amp; election.isLeader(localId.getAsInt())) {</span>
+            // If we were previously a leader, then we will start out as resigned
+            // in the same epoch. This serves two purposes:
+            // 1. It ensures that we cannot vote for another leader in the same epoch.
+            // 2. It protects the invariant that each record is uniquely identified by
+            //    offset and epoch, which might otherwise be violated if unflushed data
+            //    is lost after restarting.
+<span class="fc" id="L161">            initialState = new ResignedState(</span>
+                time,
+<span class="fc" id="L163">                localId.getAsInt(),</span>
+                election.epoch,
+                voters,
+<span class="fc" id="L166">                randomElectionTimeoutMs(),</span>
+<span class="fc" id="L167">                Collections.emptyList(),</span>
+                logContext
+            );
+<span class="fc bfc" id="L170" title="All 4 branches covered.">        } else if (localId.isPresent() &amp;&amp; election.isVotedCandidate(localId.getAsInt())) {</span>
+<span class="fc" id="L171">            initialState = new CandidateState(</span>
+                time,
+<span class="fc" id="L173">                localId.getAsInt(),</span>
+                election.epoch,
+                voters,
+<span class="fc" id="L176">                Optional.empty(),</span>
+                1,
+<span class="fc" id="L178">                randomElectionTimeoutMs(),</span>
+                logContext
+            );
+<span class="fc bfc" id="L181" title="All 2 branches covered.">        } else if (election.hasVoted()) {</span>
+<span class="fc" id="L182">            initialState = new VotedState(</span>
+                time,
+                election.epoch,
+<span class="fc" id="L185">                election.votedId(),</span>
+                voters,
+<span class="fc" id="L187">                Optional.empty(),</span>
+<span class="fc" id="L188">                randomElectionTimeoutMs(),</span>
+                logContext
+            );
+<span class="fc bfc" id="L191" title="All 2 branches covered.">        } else if (election.hasLeader()) {</span>
+<span class="fc" id="L192">            initialState = new FollowerState(</span>
+                time,
+                election.epoch,
+<span class="fc" id="L195">                election.leaderId(),</span>
+                voters,
+<span class="fc" id="L197">                Optional.empty(),</span>
+                fetchTimeoutMs,
+                logContext
+            );
+        } else {
+<span class="fc" id="L202">            initialState = new UnattachedState(</span>
+                time,
+                election.epoch,
+                voters,
+<span class="fc" id="L206">                Optional.empty(),</span>
+<span class="fc" id="L207">                randomElectionTimeoutMs(),</span>
+                logContext
+            );
+        }
+
+<span class="fc" id="L212">        transitionTo(initialState);</span>
+<span class="fc" id="L213">    }</span>
+
+    public Set&lt;Integer&gt; remoteVoters() {
+<span class="fc bfc" id="L216" title="All 2 branches covered.">        return voters.stream().filter(voterId -&gt; voterId != localIdOrSentinel()).collect(Collectors.toSet());</span>
+    }
+
+    public int localIdOrSentinel() {
+<span class="fc" id="L220">        return localId.orElse(-1);</span>
+    }
+
+    public int localIdOrThrow() {
+<span class="pc" id="L224">        return localId.orElseThrow(() -&gt; new IllegalStateException(&quot;Required local id is not present&quot;));</span>
+    }
+
+    public OptionalInt localId() {
+<span class="nc" id="L228">        return localId;</span>
+    }
+
+    public int epoch() {
+<span class="fc" id="L232">        return state.epoch();</span>
+    }
+
+    public int leaderIdOrSentinel() {
+<span class="fc" id="L236">        return leaderId().orElse(-1);</span>
+    }
+
+    public Optional&lt;LogOffsetMetadata&gt; highWatermark() {
+<span class="fc" id="L240">        return state.highWatermark();</span>
+    }
+
+    public OptionalInt leaderId() {
+
+<span class="fc" id="L245">        ElectionState election = state.election();</span>
+<span class="fc bfc" id="L246" title="All 2 branches covered.">        if (election.hasLeader())</span>
+<span class="fc" id="L247">            return OptionalInt.of(state.election().leaderId());</span>
+        else
+<span class="fc" id="L249">            return OptionalInt.empty();</span>
+    }
+
+    public boolean hasLeader() {
+<span class="fc" id="L253">        return leaderId().isPresent();</span>
+    }
+
+    public boolean hasRemoteLeader() {
+<span class="fc bfc" id="L257" title="All 4 branches covered.">        return hasLeader() &amp;&amp; leaderIdOrSentinel() != localIdOrSentinel();</span>
+    }
+
+    public boolean isVoter() {
+<span class="fc bfc" id="L261" title="All 4 branches covered.">        return localId.isPresent() &amp;&amp; voters.contains(localId.getAsInt());</span>
+    }
+
+    public boolean isVoter(int nodeId) {
+<span class="fc" id="L265">        return voters.contains(nodeId);</span>
+    }
+
+    public boolean isObserver() {
+<span class="fc bfc" id="L269" title="All 2 branches covered.">        return !isVoter();</span>
+    }
+
+    public void transitionToResigned(List&lt;Integer&gt; preferredSuccessors) {
+<span class="fc bfc" id="L273" title="All 2 branches covered.">        if (!isLeader()) {</span>
+<span class="fc" id="L274">            throw new IllegalStateException(&quot;Invalid transition to Resigned state from &quot; + state);</span>
+        }
+
+        // The Resigned state is a soft state which does not need to be persisted.
+        // A leader will always be re-initialized in this state.
+<span class="fc" id="L279">        int epoch = state.epoch();</span>
+<span class="fc" id="L280">        this.state = new ResignedState(</span>
+            time,
+<span class="fc" id="L282">            localIdOrThrow(),</span>
+            epoch,
+            voters,
+<span class="fc" id="L285">            randomElectionTimeoutMs(),</span>
+            preferredSuccessors,
+            logContext
+        );
+<span class="fc" id="L289">        log.info(&quot;Completed transition to {}&quot;, state);</span>
+<span class="fc" id="L290">    }</span>
+
+    /**
+     * Transition to the &quot;unattached&quot; state. This means we have found an epoch greater than
+     * or equal to the current epoch, but wo do not yet know of the elected leader.
+     */
+    public void transitionToUnattached(int epoch) {
+<span class="fc" id="L297">        int currentEpoch = state.epoch();</span>
+<span class="fc bfc" id="L298" title="All 2 branches covered.">        if (epoch &lt;= currentEpoch) {</span>
+<span class="fc" id="L299">            throw new IllegalStateException(&quot;Cannot transition to Unattached with epoch= &quot; + epoch +</span>
+                &quot; from current state &quot; + state);
+        }
+
+        final long electionTimeoutMs;
+<span class="fc bfc" id="L304" title="All 2 branches covered.">        if (isObserver()) {</span>
+<span class="fc" id="L305">            electionTimeoutMs = Long.MAX_VALUE;</span>
+<span class="fc bfc" id="L306" title="All 2 branches covered.">        } else if (isCandidate()) {</span>
+<span class="fc" id="L307">            electionTimeoutMs = candidateStateOrThrow().remainingElectionTimeMs(time.milliseconds());</span>
+<span class="fc bfc" id="L308" title="All 2 branches covered.">        } else if (isVoted()) {</span>
+<span class="fc" id="L309">            electionTimeoutMs = votedStateOrThrow().remainingElectionTimeMs(time.milliseconds());</span>
+<span class="fc bfc" id="L310" title="All 2 branches covered.">        } else if (isUnattached()) {</span>
+<span class="fc" id="L311">            electionTimeoutMs = unattachedStateOrThrow().remainingElectionTimeMs(time.milliseconds());</span>
+        } else {
+<span class="fc" id="L313">            electionTimeoutMs = randomElectionTimeoutMs();</span>
+        }
+
+<span class="fc" id="L316">        transitionTo(new UnattachedState(</span>
+            time,
+            epoch,
+            voters,
+<span class="fc" id="L320">            state.highWatermark(),</span>
+            electionTimeoutMs,
+            logContext
+        ));
+<span class="fc" id="L324">    }</span>
+
+    /**
+     * Grant a vote to a candidate and become a follower for this epoch. We will remain in this
+     * state until either the election timeout expires or a leader is elected. In particular,
+     * we do not begin fetching until the election has concluded and {@link #transitionToFollower(int, int)}
+     * is invoked.
+     */
+    public void transitionToVoted(
+        int epoch,
+        int candidateId
+    ) {
+<span class="fc bfc" id="L336" title="All 4 branches covered.">        if (localId.isPresent() &amp;&amp; candidateId == localId.getAsInt()) {</span>
+<span class="fc" id="L337">            throw new IllegalStateException(&quot;Cannot transition to Voted with votedId=&quot; + candidateId +</span>
+                &quot; and epoch=&quot; + epoch + &quot; since it matches the local broker.id&quot;);
+<span class="fc bfc" id="L339" title="All 2 branches covered.">        } else if (isObserver()) {</span>
+<span class="fc" id="L340">            throw new IllegalStateException(&quot;Cannot transition to Voted with votedId=&quot; + candidateId +</span>
+                &quot; and epoch=&quot; + epoch + &quot; since the local broker.id=&quot; + localId + &quot; is not a voter&quot;);
+<span class="fc bfc" id="L342" title="All 2 branches covered.">        } else if (!isVoter(candidateId)) {</span>
+<span class="fc" id="L343">            throw new IllegalStateException(&quot;Cannot transition to Voted with voterId=&quot; + candidateId +</span>
+                &quot; and epoch=&quot; + epoch + &quot; since it is not one of the voters &quot; + voters);
+        }
+
+<span class="fc" id="L347">        int currentEpoch = state.epoch();</span>
+<span class="fc bfc" id="L348" title="All 2 branches covered.">        if (epoch &lt; currentEpoch) {</span>
+<span class="fc" id="L349">            throw new IllegalStateException(&quot;Cannot transition to Voted with votedId=&quot; + candidateId +</span>
+                &quot; and epoch=&quot; + epoch + &quot; since the current epoch &quot; + currentEpoch + &quot; is larger&quot;);
+<span class="fc bfc" id="L351" title="All 4 branches covered.">        } else if (epoch == currentEpoch &amp;&amp; !isUnattached()) {</span>
+<span class="fc" id="L352">            throw new IllegalStateException(&quot;Cannot transition to Voted with votedId=&quot; + candidateId +</span>
+                &quot; and epoch=&quot; + epoch + &quot; from the current state &quot; + state);
+        }
+
+        // Note that we reset the election timeout after voting for a candidate because we
+        // know that the candidate has at least as good of a chance of getting elected as us
+
+<span class="fc" id="L359">        transitionTo(new VotedState(</span>
+            time,
+            epoch,
+            candidateId,
+            voters,
+<span class="fc" id="L364">            state.highWatermark(),</span>
+<span class="fc" id="L365">            randomElectionTimeoutMs(),</span>
+            logContext
+        ));
+<span class="fc" id="L368">    }</span>
+
+    /**
+     * Become a follower of an elected leader so that we can begin fetching.
+     */
+    public void transitionToFollower(
+        int epoch,
+        int leaderId
+    ) {
+<span class="fc bfc" id="L377" title="All 4 branches covered.">        if (localId.isPresent() &amp;&amp; leaderId == localId.getAsInt()) {</span>
+<span class="fc" id="L378">            throw new IllegalStateException(&quot;Cannot transition to Follower with leaderId=&quot; + leaderId +</span>
+                &quot; and epoch=&quot; + epoch + &quot; since it matches the local broker.id=&quot; + localId);
+<span class="fc bfc" id="L380" title="All 2 branches covered.">        } else if (!isVoter(leaderId)) {</span>
+<span class="fc" id="L381">            throw new IllegalStateException(&quot;Cannot transition to Follower with leaderId=&quot; + leaderId +</span>
+                &quot; and epoch=&quot; + epoch + &quot; since it is not one of the voters &quot; + voters);
+        }
+
+<span class="fc" id="L385">        int currentEpoch = state.epoch();</span>
+<span class="fc bfc" id="L386" title="All 2 branches covered.">        if (epoch &lt; currentEpoch) {</span>
+<span class="fc" id="L387">            throw new IllegalStateException(&quot;Cannot transition to Follower with leaderId=&quot; + leaderId +</span>
+                &quot; and epoch=&quot; + epoch + &quot; since the current epoch &quot; + currentEpoch + &quot; is larger&quot;);
+<span class="fc bfc" id="L389" title="All 2 branches covered.">        } else if (epoch == currentEpoch</span>
+<span class="pc bpc" id="L390" title="1 of 4 branches missed.">            &amp;&amp; (isFollower() || isLeader())) {</span>
+<span class="fc" id="L391">            throw new IllegalStateException(&quot;Cannot transition to Follower with leaderId=&quot; + leaderId +</span>
+                &quot; and epoch=&quot; + epoch + &quot; from state &quot; + state);
+        }
+
+<span class="fc" id="L395">        transitionTo(new FollowerState(</span>
+            time,
+            epoch,
+            leaderId,
+            voters,
+<span class="fc" id="L400">            state.highWatermark(),</span>
+            fetchTimeoutMs,
+            logContext
+        ));
+<span class="fc" id="L404">    }</span>
+
+    public void transitionToCandidate() {
+<span class="fc bfc" id="L407" title="All 2 branches covered.">        if (isObserver()) {</span>
+<span class="fc" id="L408">            throw new IllegalStateException(&quot;Cannot transition to Candidate since the local broker.id=&quot; + localId +</span>
+                &quot; is not one of the voters &quot; + voters);
+<span class="fc bfc" id="L410" title="All 2 branches covered.">        } else if (isLeader()) {</span>
+<span class="fc" id="L411">            throw new IllegalStateException(&quot;Cannot transition to Candidate since the local broker.id=&quot; + localId +</span>
+                &quot; since this node is already a Leader with state &quot; + state);
+        }
+
+<span class="fc bfc" id="L415" title="All 2 branches covered.">        int retries = isCandidate() ? candidateStateOrThrow().retries() + 1 : 1;</span>
+<span class="fc" id="L416">        int newEpoch = epoch() + 1;</span>
+<span class="fc" id="L417">        int electionTimeoutMs = randomElectionTimeoutMs();</span>
+
+<span class="fc" id="L419">        transitionTo(new CandidateState(</span>
+            time,
+<span class="fc" id="L421">            localIdOrThrow(),</span>
+            newEpoch,
+            voters,
+<span class="fc" id="L424">            state.highWatermark(),</span>
+            retries,
+            electionTimeoutMs,
+            logContext
+        ));
+<span class="fc" id="L429">    }</span>
+
+    public &lt;T&gt; LeaderState&lt;T&gt; transitionToLeader(long epochStartOffset, BatchAccumulator&lt;T&gt; accumulator) {
+<span class="fc bfc" id="L432" title="All 2 branches covered.">        if (isObserver()) {</span>
+<span class="fc" id="L433">            throw new IllegalStateException(&quot;Cannot transition to Leader since the local broker.id=&quot;  + localId +</span>
+                &quot; is not one of the voters &quot; + voters);
+<span class="fc bfc" id="L435" title="All 2 branches covered.">        } else if (!isCandidate()) {</span>
+<span class="fc" id="L436">            throw new IllegalStateException(&quot;Cannot transition to Leader from current state &quot; + state);</span>
+        }
+
+<span class="fc" id="L439">        CandidateState candidateState = candidateStateOrThrow();</span>
+<span class="fc bfc" id="L440" title="All 2 branches covered.">        if (!candidateState.isVoteGranted())</span>
+<span class="fc" id="L441">            throw new IllegalStateException(&quot;Cannot become leader without majority votes granted&quot;);</span>
+
+        // Note that the leader does not retain the high watermark that was known
+        // in the previous state. The reason for this is to protect the monotonicity
+        // of the global high watermark, which is exposed through the leader. The
+        // only way a new leader can be sure that the high watermark is increasing
+        // monotonically is to wait until a majority of the voters have reached the
+        // starting offset of the new epoch. The downside of this is that the local
+        // state machine is temporarily stalled by the advancement of the global
+        // high watermark even though it only depends on local monotonicity. We
+        // could address this problem by decoupling the local high watermark, but
+        // we typically expect the state machine to be caught up anyway.
+
+<span class="fc" id="L454">        LeaderState&lt;T&gt; state = new LeaderState&lt;&gt;(</span>
+<span class="fc" id="L455">            localIdOrThrow(),</span>
+<span class="fc" id="L456">            epoch(),</span>
+            epochStartOffset,
+            voters,
+<span class="fc" id="L459">            candidateState.grantingVoters(),</span>
+            accumulator,
+            logContext
+        );
+<span class="fc" id="L463">        transitionTo(state);</span>
+<span class="fc" id="L464">        return state;</span>
+    }
+
+    private void transitionTo(EpochState state) {
+<span class="fc bfc" id="L468" title="All 2 branches covered.">        if (this.state != null) {</span>
+            try {
+<span class="fc" id="L470">                this.state.close();</span>
+<span class="nc" id="L471">            } catch (IOException e) {</span>
+<span class="nc" id="L472">                throw new UncheckedIOException(</span>
+<span class="nc" id="L473">                    &quot;Failed to transition from &quot; + this.state.name() + &quot; to &quot; + state.name(), e);</span>
+<span class="fc" id="L474">            }</span>
+        }
+
+<span class="fc" id="L477">        this.store.writeElectionState(state.election());</span>
+<span class="fc" id="L478">        this.state = state;</span>
+<span class="fc" id="L479">        log.info(&quot;Completed transition to {}&quot;, state);</span>
+<span class="fc" id="L480">    }</span>
+
+    private int randomElectionTimeoutMs() {
+<span class="pc bpc" id="L483" title="1 of 2 branches missed.">        if (electionTimeoutMs == 0)</span>
+<span class="nc" id="L484">            return 0;</span>
+<span class="fc" id="L485">        return electionTimeoutMs + random.nextInt(electionTimeoutMs);</span>
+    }
+
+    public boolean canGrantVote(int candidateId, boolean isLogUpToDate) {
+<span class="fc" id="L489">        return state.canGrantVote(candidateId, isLogUpToDate);</span>
+    }
+
+    public FollowerState followerStateOrThrow() {
+<span class="pc bpc" id="L493" title="1 of 2 branches missed.">        if (isFollower())</span>
+<span class="fc" id="L494">            return (FollowerState) state;</span>
+<span class="nc" id="L495">        throw new IllegalStateException(&quot;Expected to be Follower, but the current state is &quot; + state);</span>
+    }
+
+    public VotedState votedStateOrThrow() {
+<span class="pc bpc" id="L499" title="1 of 2 branches missed.">        if (isVoted())</span>
+<span class="fc" id="L500">            return (VotedState) state;</span>
+<span class="nc" id="L501">        throw new IllegalStateException(&quot;Expected to be Voted, but current state is &quot; + state);</span>
+    }
+
+    public UnattachedState unattachedStateOrThrow() {
+<span class="pc bpc" id="L505" title="1 of 2 branches missed.">        if (isUnattached())</span>
+<span class="fc" id="L506">            return (UnattachedState) state;</span>
+<span class="nc" id="L507">        throw new IllegalStateException(&quot;Expected to be Unattached, but current state is &quot; + state);</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public &lt;T&gt; LeaderState&lt;T&gt; leaderStateOrThrow() {
+<span class="pc bpc" id="L512" title="1 of 2 branches missed.">        if (isLeader())</span>
+<span class="fc" id="L513">            return (LeaderState&lt;T&gt;) state;</span>
+<span class="nc" id="L514">        throw new IllegalStateException(&quot;Expected to be Leader, but current state is &quot; + state);</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public &lt;T&gt; Optional&lt;LeaderState&lt;T&gt;&gt; maybeLeaderState() {
+<span class="fc" id="L519">        EpochState state = this.state;</span>
+<span class="fc bfc" id="L520" title="All 2 branches covered.">        if (state instanceof  LeaderState) {</span>
+<span class="fc" id="L521">            return Optional.of((LeaderState&lt;T&gt;) state);</span>
+        } else {
+<span class="fc" id="L523">            return Optional.empty();</span>
+        }
+    }
+
+    public ResignedState resignedStateOrThrow() {
+<span class="pc bpc" id="L528" title="1 of 2 branches missed.">        if (isResigned())</span>
+<span class="fc" id="L529">            return (ResignedState) state;</span>
+<span class="nc" id="L530">        throw new IllegalStateException(&quot;Expected to be Resigned, but current state is &quot; + state);</span>
+    }
+
+    public CandidateState candidateStateOrThrow() {
+<span class="pc bpc" id="L534" title="1 of 2 branches missed.">        if (isCandidate())</span>
+<span class="fc" id="L535">            return (CandidateState) state;</span>
+<span class="nc" id="L536">        throw new IllegalStateException(&quot;Expected to be Candidate, but current state is &quot; + state);</span>
+    }
+
+    public LeaderAndEpoch leaderAndEpoch() {
+<span class="fc" id="L540">        ElectionState election = state.election();</span>
+<span class="fc" id="L541">        return new LeaderAndEpoch(election.leaderIdOpt, election.epoch);</span>
+    }
+
+    public boolean isFollower() {
+<span class="fc" id="L545">        return state instanceof FollowerState;</span>
+    }
+
+    public boolean isVoted() {
+<span class="fc" id="L549">        return state instanceof VotedState;</span>
+    }
+
+    public boolean isUnattached() {
+<span class="fc" id="L553">        return state instanceof UnattachedState;</span>
+    }
+
+    public boolean isLeader() {
+<span class="fc" id="L557">        return state instanceof LeaderState;</span>
+    }
+
+    public boolean isResigned() {
+<span class="fc" id="L561">        return state instanceof ResignedState;</span>
+    }
+
+    public boolean isCandidate() {
+<span class="fc" id="L565">        return state instanceof CandidateState;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

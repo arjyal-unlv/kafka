@@ -1,0 +1,2600 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KafkaRaftClient.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft</a> &gt; <span class="el_source">KafkaRaftClient.java</span></div><h1>KafkaRaftClient.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft;
+
+import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.ClusterAuthorizationException;
+import org.apache.kafka.common.errors.NotLeaderOrFollowerException;
+import org.apache.kafka.common.memory.MemoryPool;
+import org.apache.kafka.common.message.BeginQuorumEpochRequestData;
+import org.apache.kafka.common.message.BeginQuorumEpochResponseData;
+import org.apache.kafka.common.message.DescribeQuorumRequestData;
+import org.apache.kafka.common.message.DescribeQuorumResponseData;
+import org.apache.kafka.common.message.DescribeQuorumResponseData.ReplicaState;
+import org.apache.kafka.common.message.EndQuorumEpochRequestData;
+import org.apache.kafka.common.message.EndQuorumEpochResponseData;
+import org.apache.kafka.common.message.FetchRequestData;
+import org.apache.kafka.common.message.FetchResponseData;
+import org.apache.kafka.common.message.FetchSnapshotRequestData;
+import org.apache.kafka.common.message.FetchSnapshotResponseData;
+import org.apache.kafka.common.message.VoteRequestData;
+import org.apache.kafka.common.message.VoteResponseData;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.protocol.ApiKeys;
+import org.apache.kafka.common.protocol.ApiMessage;
+import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.record.CompressionType;
+import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.Records;
+import org.apache.kafka.common.record.UnalignedMemoryRecords;
+import org.apache.kafka.common.record.UnalignedRecords;
+import org.apache.kafka.common.requests.BeginQuorumEpochRequest;
+import org.apache.kafka.common.requests.BeginQuorumEpochResponse;
+import org.apache.kafka.common.requests.DescribeQuorumRequest;
+import org.apache.kafka.common.requests.DescribeQuorumResponse;
+import org.apache.kafka.common.requests.EndQuorumEpochRequest;
+import org.apache.kafka.common.requests.EndQuorumEpochResponse;
+import org.apache.kafka.common.requests.FetchResponse;
+import org.apache.kafka.common.requests.FetchSnapshotRequest;
+import org.apache.kafka.common.requests.FetchSnapshotResponse;
+import org.apache.kafka.common.requests.VoteRequest;
+import org.apache.kafka.common.requests.VoteResponse;
+import org.apache.kafka.common.utils.BufferSupplier;
+import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Timer;
+import org.apache.kafka.raft.RequestManager.ConnectionState;
+import org.apache.kafka.raft.errors.NotLeaderException;
+import org.apache.kafka.raft.internals.BatchAccumulator;
+import org.apache.kafka.raft.internals.BatchMemoryPool;
+import org.apache.kafka.raft.internals.BlockingMessageQueue;
+import org.apache.kafka.raft.internals.CloseListener;
+import org.apache.kafka.raft.internals.FuturePurgatory;
+import org.apache.kafka.raft.internals.KafkaRaftMetrics;
+import org.apache.kafka.raft.internals.MemoryBatchReader;
+import org.apache.kafka.raft.internals.RecordsBatchReader;
+import org.apache.kafka.raft.internals.ThresholdPurgatory;
+import org.apache.kafka.server.common.serialization.RecordSerde;
+import org.apache.kafka.snapshot.RawSnapshotReader;
+import org.apache.kafka.snapshot.RawSnapshotWriter;
+import org.apache.kafka.snapshot.SnapshotReader;
+import org.apache.kafka.snapshot.SnapshotWriter;
+import org.slf4j.Logger;
+
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
+import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
+import static java.util.concurrent.CompletableFuture.completedFuture;
+import static org.apache.kafka.raft.RaftUtil.hasValidTopicPartition;
+
+/**
+ * This class implements a Kafkaesque version of the Raft protocol. Leader election
+ * is more or less pure Raft, but replication is driven by replica fetching and we use Kafka's
+ * log reconciliation protocol to truncate the log to a common point following each leader
+ * election.
+ *
+ * Like Zookeeper, this protocol distinguishes between voters and observers. Voters are
+ * the only ones who are eligible to handle protocol requests and they are the only ones
+ * who take part in elections. The protocol does not yet support dynamic quorum changes.
+ *
+ * These are the APIs in this protocol:
+ *
+ * 1) {@link VoteRequestData}: Sent by valid voters when their election timeout expires and they
+ *    become a candidate. This request includes the last offset in the log which electors use
+ *    to tell whether or not to grant the vote.
+ *
+ * 2) {@link BeginQuorumEpochRequestData}: Sent by the leader of an epoch only to valid voters to
+ *    assert its leadership of the new epoch. This request will be retried indefinitely for
+ *    each voter until it acknowledges the request or a new election occurs.
+ *
+ *    This is not needed in usual Raft because the leader can use an empty data push
+ *    to achieve the same purpose. The Kafka Raft implementation, however, is driven by
+ *    fetch requests from followers, so there must be a way to find the new leader after
+ *    an election has completed.
+ *
+ * 3) {@link EndQuorumEpochRequestData}: Sent by the leader of an epoch to valid voters in order to
+ *    gracefully resign from the current epoch. This causes remaining voters to immediately
+ *    begin a new election.
+ *
+ * 4) {@link FetchRequestData}: This is the same as the usual Fetch API in Kafka, but we add snapshot
+ *    check before responding, and we also piggyback some additional metadata on responses (i.e. current
+ *    leader and epoch). Unlike partition replication, we also piggyback truncation detection on this API
+ *    rather than through a separate truncation state.
+ *
+ * 5) {@link FetchSnapshotRequestData}: Sent by the follower to the epoch leader in order to fetch a snapshot.
+ *    This happens when a FetchResponse includes a snapshot ID due to the follower's log end offset being less
+ *    than the leader's log start offset. This API is similar to the Fetch API since the snapshot is stored
+ *    as FileRecords, but we use {@link UnalignedRecords} in FetchSnapshotResponse because the records
+ *    are not necessarily offset-aligned.
+ */
+public class KafkaRaftClient&lt;T&gt; implements RaftClient&lt;T&gt; {
+    private static final int RETRY_BACKOFF_BASE_MS = 100;
+    public static final int MAX_FETCH_WAIT_MS = 500;
+    public static final int MAX_BATCH_SIZE_BYTES = 8 * 1024 * 1024;
+    public static final int MAX_FETCH_SIZE_BYTES = MAX_BATCH_SIZE_BYTES;
+
+<span class="fc" id="L147">    private final AtomicReference&lt;GracefulShutdown&gt; shutdown = new AtomicReference&lt;&gt;();</span>
+    private final Logger logger;
+    private final Time time;
+    private final int fetchMaxWaitMs;
+    private final String clusterId;
+    private final NetworkChannel channel;
+    private final ReplicatedLog log;
+    private final Random random;
+    private final FuturePurgatory&lt;Long&gt; appendPurgatory;
+    private final FuturePurgatory&lt;Long&gt; fetchPurgatory;
+    private final RecordSerde&lt;T&gt; serde;
+    private final MemoryPool memoryPool;
+    private final RaftMessageQueue messageQueue;
+    private final RaftConfig raftConfig;
+    private final KafkaRaftMetrics kafkaRaftMetrics;
+    private final QuorumState quorum;
+    private final RequestManager requestManager;
+    private final RaftMetadataLogCleanerManager snapshotCleaner;
+
+<span class="fc" id="L166">    private final Map&lt;Listener&lt;T&gt;, ListenerContext&gt; listenerContexts = new IdentityHashMap&lt;&gt;();</span>
+<span class="fc" id="L167">    private final ConcurrentLinkedQueue&lt;Registration&lt;T&gt;&gt; pendingRegistrations = new ConcurrentLinkedQueue&lt;&gt;();</span>
+
+    /**
+     * Create a new instance.
+     *
+     * Note that if the node ID is empty, then the client will behave as a
+     * non-participating observer.
+     */
+    public KafkaRaftClient(
+        RecordSerde&lt;T&gt; serde,
+        NetworkChannel channel,
+        ReplicatedLog log,
+        QuorumStateStore quorumStateStore,
+        Time time,
+        Metrics metrics,
+        ExpirationService expirationService,
+        LogContext logContext,
+        String clusterId,
+        OptionalInt nodeId,
+        RaftConfig raftConfig
+    ) {
+<span class="nc" id="L188">        this(serde,</span>
+            channel,
+            new BlockingMessageQueue(),
+            log,
+            quorumStateStore,
+            new BatchMemoryPool(5, MAX_BATCH_SIZE_BYTES),
+            time,
+            metrics,
+            expirationService,
+            MAX_FETCH_WAIT_MS,
+            clusterId,
+            nodeId,
+            logContext,
+            new Random(),
+            raftConfig);
+<span class="nc" id="L203">    }</span>
+
+    KafkaRaftClient(
+        RecordSerde&lt;T&gt; serde,
+        NetworkChannel channel,
+        RaftMessageQueue messageQueue,
+        ReplicatedLog log,
+        QuorumStateStore quorumStateStore,
+        MemoryPool memoryPool,
+        Time time,
+        Metrics metrics,
+        ExpirationService expirationService,
+        int fetchMaxWaitMs,
+        String clusterId,
+        OptionalInt nodeId,
+        LogContext logContext,
+        Random random,
+        RaftConfig raftConfig
+<span class="fc" id="L221">    ) {</span>
+<span class="fc" id="L222">        this.serde = serde;</span>
+<span class="fc" id="L223">        this.channel = channel;</span>
+<span class="fc" id="L224">        this.messageQueue = messageQueue;</span>
+<span class="fc" id="L225">        this.log = log;</span>
+<span class="fc" id="L226">        this.memoryPool = memoryPool;</span>
+<span class="fc" id="L227">        this.fetchPurgatory = new ThresholdPurgatory&lt;&gt;(expirationService);</span>
+<span class="fc" id="L228">        this.appendPurgatory = new ThresholdPurgatory&lt;&gt;(expirationService);</span>
+<span class="fc" id="L229">        this.time = time;</span>
+<span class="fc" id="L230">        this.clusterId = clusterId;</span>
+<span class="fc" id="L231">        this.fetchMaxWaitMs = fetchMaxWaitMs;</span>
+<span class="fc" id="L232">        this.logger = logContext.logger(KafkaRaftClient.class);</span>
+<span class="fc" id="L233">        this.random = random;</span>
+<span class="fc" id="L234">        this.raftConfig = raftConfig;</span>
+<span class="fc" id="L235">        this.snapshotCleaner = new RaftMetadataLogCleanerManager(logger, time, 60000, log::maybeClean);</span>
+<span class="fc" id="L236">        Set&lt;Integer&gt; quorumVoterIds = raftConfig.quorumVoterIds();</span>
+<span class="fc" id="L237">        this.requestManager = new RequestManager(quorumVoterIds, raftConfig.retryBackoffMs(),</span>
+<span class="fc" id="L238">            raftConfig.requestTimeoutMs(), random);</span>
+<span class="fc" id="L239">        this.quorum = new QuorumState(</span>
+            nodeId,
+            quorumVoterIds,
+<span class="fc" id="L242">            raftConfig.electionTimeoutMs(),</span>
+<span class="fc" id="L243">            raftConfig.fetchTimeoutMs(),</span>
+            quorumStateStore,
+            time,
+            logContext,
+            random);
+<span class="fc" id="L248">        this.kafkaRaftMetrics = new KafkaRaftMetrics(metrics, &quot;raft&quot;, quorum);</span>
+<span class="fc" id="L249">        kafkaRaftMetrics.updateNumUnknownVoterConnections(quorum.remoteVoters().size());</span>
+
+        // Update the voter endpoints with what's in RaftConfig
+<span class="fc" id="L252">        Map&lt;Integer, RaftConfig.AddressSpec&gt; voterAddresses = raftConfig.quorumVoterConnections();</span>
+<span class="fc" id="L253">        voterAddresses.entrySet().stream()</span>
+<span class="fc" id="L254">            .filter(e -&gt; e.getValue() instanceof RaftConfig.InetAddressSpec)</span>
+<span class="fc" id="L255">            .forEach(e -&gt; this.channel.updateEndpoint(e.getKey(), (RaftConfig.InetAddressSpec) e.getValue()));</span>
+<span class="fc" id="L256">    }</span>
+
+    private void updateFollowerHighWatermark(
+        FollowerState state,
+        OptionalLong highWatermarkOpt
+    ) {
+<span class="fc" id="L262">        highWatermarkOpt.ifPresent(highWatermark -&gt; {</span>
+<span class="fc" id="L263">            long newHighWatermark = Math.min(endOffset().offset, highWatermark);</span>
+<span class="fc bfc" id="L264" title="All 2 branches covered.">            if (state.updateHighWatermark(OptionalLong.of(newHighWatermark))) {</span>
+<span class="fc" id="L265">                logger.debug(&quot;Follower high watermark updated to {}&quot;, newHighWatermark);</span>
+<span class="fc" id="L266">                log.updateHighWatermark(new LogOffsetMetadata(newHighWatermark));</span>
+<span class="fc" id="L267">                updateListenersProgress(newHighWatermark);</span>
+            }
+<span class="fc" id="L269">        });</span>
+<span class="fc" id="L270">    }</span>
+
+    private void updateLeaderEndOffsetAndTimestamp(
+        LeaderState&lt;T&gt; state,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L276">        final LogOffsetMetadata endOffsetMetadata = log.endOffset();</span>
+
+<span class="fc bfc" id="L278" title="All 2 branches covered.">        if (state.updateLocalState(currentTimeMs, endOffsetMetadata)) {</span>
+<span class="fc" id="L279">            onUpdateLeaderHighWatermark(state, currentTimeMs);</span>
+        }
+
+<span class="fc" id="L282">        fetchPurgatory.maybeComplete(endOffsetMetadata.offset, currentTimeMs);</span>
+<span class="fc" id="L283">    }</span>
+
+    private void onUpdateLeaderHighWatermark(
+        LeaderState&lt;T&gt; state,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L289">        state.highWatermark().ifPresent(highWatermark -&gt; {</span>
+<span class="fc" id="L290">            logger.debug(&quot;Leader high watermark updated to {}&quot;, highWatermark);</span>
+<span class="fc" id="L291">            log.updateHighWatermark(highWatermark);</span>
+
+            // After updating the high watermark, we first clear the append
+            // purgatory so that we have an opportunity to route the pending
+            // records still held in memory directly to the listener
+<span class="fc" id="L296">            appendPurgatory.maybeComplete(highWatermark.offset, currentTimeMs);</span>
+
+            // It is also possible that the high watermark is being updated
+            // for the first time following the leader election, so we need
+            // to give lagging listeners an opportunity to catch up as well
+<span class="fc" id="L301">            updateListenersProgress(highWatermark.offset);</span>
+<span class="fc" id="L302">        });</span>
+<span class="fc" id="L303">    }</span>
+
+    private void updateListenersProgress(long highWatermark) {
+<span class="fc bfc" id="L306" title="All 2 branches covered.">        for (ListenerContext listenerContext : listenerContexts.values()) {</span>
+<span class="fc" id="L307">            listenerContext.nextExpectedOffset().ifPresent(nextExpectedOffset -&gt; {</span>
+<span class="pc bpc" id="L308" title="1 of 4 branches missed.">                if (nextExpectedOffset &lt; log.startOffset() &amp;&amp; nextExpectedOffset &lt; highWatermark) {</span>
+<span class="pc" id="L309">                    SnapshotReader&lt;T&gt; snapshot = latestSnapshot().orElseThrow(() -&gt; new IllegalStateException(</span>
+<span class="nc" id="L310">                        String.format(</span>
+                            &quot;Snapshot expected since next offset of %s is %s, log start offset is %s and high-watermark is %s&quot;,
+<span class="nc" id="L312">                            listenerContext.listenerName(),</span>
+<span class="nc" id="L313">                            nextExpectedOffset,</span>
+<span class="nc" id="L314">                            log.startOffset(),</span>
+<span class="nc" id="L315">                            highWatermark</span>
+                        )
+                    ));
+<span class="fc" id="L318">                    listenerContext.fireHandleSnapshot(snapshot);</span>
+                }
+<span class="fc" id="L320">            });</span>
+
+            // Re-read the expected offset in case the snapshot had to be reloaded
+<span class="fc" id="L323">            listenerContext.nextExpectedOffset().ifPresent(nextExpectedOffset -&gt; {</span>
+<span class="fc bfc" id="L324" title="All 2 branches covered.">                if (nextExpectedOffset &lt; highWatermark) {</span>
+<span class="fc" id="L325">                    LogFetchInfo readInfo = log.read(nextExpectedOffset, Isolation.COMMITTED);</span>
+<span class="fc" id="L326">                    listenerContext.fireHandleCommit(nextExpectedOffset, readInfo.records);</span>
+                }
+<span class="fc" id="L328">            });</span>
+<span class="fc" id="L329">        }</span>
+<span class="fc" id="L330">    }</span>
+
+    private Optional&lt;SnapshotReader&lt;T&gt;&gt; latestSnapshot() {
+<span class="fc" id="L333">        return log.latestSnapshot().map(reader -&gt;</span>
+<span class="fc" id="L334">            SnapshotReader.of(reader, serde, BufferSupplier.create(), MAX_BATCH_SIZE_BYTES)</span>
+        );
+    }
+
+    private void maybeFireHandleCommit(long baseOffset, int epoch, long appendTimestamp, int sizeInBytes, List&lt;T&gt; records) {
+<span class="fc bfc" id="L339" title="All 2 branches covered.">        for (ListenerContext listenerContext : listenerContexts.values()) {</span>
+<span class="fc" id="L340">            listenerContext.nextExpectedOffset().ifPresent(nextOffset -&gt; {</span>
+<span class="fc bfc" id="L341" title="All 2 branches covered.">                if (nextOffset == baseOffset) {</span>
+<span class="fc" id="L342">                    listenerContext.fireHandleCommit(baseOffset, epoch, appendTimestamp, sizeInBytes, records);</span>
+                }
+<span class="fc" id="L344">            });</span>
+<span class="fc" id="L345">        }</span>
+<span class="fc" id="L346">    }</span>
+
+    private void maybeFireLeaderChange(LeaderState&lt;T&gt; state) {
+<span class="fc bfc" id="L349" title="All 2 branches covered.">        for (ListenerContext listenerContext : listenerContexts.values()) {</span>
+<span class="fc" id="L350">            listenerContext.maybeFireLeaderChange(quorum.leaderAndEpoch(), state.epochStartOffset());</span>
+<span class="fc" id="L351">        }</span>
+<span class="fc" id="L352">    }</span>
+
+    private void maybeFireLeaderChange() {
+<span class="fc bfc" id="L355" title="All 2 branches covered.">        for (ListenerContext listenerContext : listenerContexts.values()) {</span>
+<span class="fc" id="L356">            listenerContext.maybeFireLeaderChange(quorum.leaderAndEpoch());</span>
+<span class="fc" id="L357">        }</span>
+<span class="fc" id="L358">    }</span>
+
+    @Override
+    public void initialize() {
+<span class="fc" id="L362">        quorum.initialize(new OffsetAndEpoch(log.endOffset().offset, log.lastFetchedEpoch()));</span>
+
+<span class="fc" id="L364">        long currentTimeMs = time.milliseconds();</span>
+<span class="pc bpc" id="L365" title="1 of 2 branches missed.">        if (quorum.isLeader()) {</span>
+<span class="nc" id="L366">            throw new IllegalStateException(&quot;Voter cannot initialize as a Leader&quot;);</span>
+<span class="fc bfc" id="L367" title="All 2 branches covered.">        } else if (quorum.isCandidate()) {</span>
+<span class="fc" id="L368">            onBecomeCandidate(currentTimeMs);</span>
+<span class="fc bfc" id="L369" title="All 2 branches covered.">        } else if (quorum.isFollower()) {</span>
+<span class="fc" id="L370">            onBecomeFollower(currentTimeMs);</span>
+        }
+
+        // When there is only a single voter, become candidate immediately
+<span class="fc bfc" id="L374" title="All 2 branches covered.">        if (quorum.isVoter()</span>
+<span class="fc bfc" id="L375" title="All 2 branches covered.">            &amp;&amp; quorum.remoteVoters().isEmpty()</span>
+<span class="pc bpc" id="L376" title="1 of 2 branches missed.">            &amp;&amp; !quorum.isCandidate()) {</span>
+
+<span class="fc" id="L378">            transitionToCandidate(currentTimeMs);</span>
+        }
+<span class="fc" id="L380">    }</span>
+
+    @Override
+    public void register(Listener&lt;T&gt; listener) {
+<span class="fc" id="L384">        pendingRegistrations.add(Registration.register(listener));</span>
+<span class="fc" id="L385">        wakeup();</span>
+<span class="fc" id="L386">    }</span>
+
+    @Override
+    public void unregister(Listener&lt;T&gt; listener) {
+<span class="fc" id="L390">        pendingRegistrations.add(Registration.unregister(listener));</span>
+        // No need to wakeup the polling thread. It is a removal so the updates can be
+        // delayed until the polling thread wakes up for other reasons.
+<span class="fc" id="L393">    }</span>
+
+    @Override
+    public LeaderAndEpoch leaderAndEpoch() {
+<span class="fc" id="L397">        return quorum.leaderAndEpoch();</span>
+    }
+
+    @Override
+    public OptionalInt nodeId() {
+<span class="nc" id="L402">        return quorum.localId();</span>
+    }
+
+    private OffsetAndEpoch endOffset() {
+<span class="fc" id="L406">        return new OffsetAndEpoch(log.endOffset().offset, log.lastFetchedEpoch());</span>
+    }
+
+    private void resetConnections() {
+<span class="fc" id="L410">        requestManager.resetAll();</span>
+<span class="fc" id="L411">    }</span>
+
+    private void onBecomeLeader(long currentTimeMs) {
+<span class="fc" id="L414">        long endOffset = log.endOffset().offset;</span>
+
+<span class="fc" id="L416">        BatchAccumulator&lt;T&gt; accumulator = new BatchAccumulator&lt;&gt;(</span>
+<span class="fc" id="L417">            quorum.epoch(),</span>
+            endOffset,
+<span class="fc" id="L419">            raftConfig.appendLingerMs(),</span>
+            MAX_BATCH_SIZE_BYTES,
+            memoryPool,
+            time,
+            CompressionType.NONE,
+            serde
+        );
+
+<span class="fc" id="L427">        LeaderState&lt;T&gt; state = quorum.transitionToLeader(endOffset, accumulator);</span>
+<span class="fc" id="L428">        maybeFireLeaderChange(state);</span>
+
+<span class="fc" id="L430">        log.initializeLeaderEpoch(quorum.epoch());</span>
+
+        // The high watermark can only be advanced once we have written a record
+        // from the new leader's epoch. Hence we write a control message immediately
+        // to ensure there is no delay committing pending data.
+<span class="fc" id="L435">        state.appendLeaderChangeMessage(currentTimeMs);</span>
+
+<span class="fc" id="L437">        resetConnections();</span>
+<span class="fc" id="L438">        kafkaRaftMetrics.maybeUpdateElectionLatency(currentTimeMs);</span>
+<span class="fc" id="L439">    }</span>
+
+    private void flushLeaderLog(LeaderState&lt;T&gt; state, long currentTimeMs) {
+        // We update the end offset before flushing so that parked fetches can return sooner.
+<span class="fc" id="L443">        updateLeaderEndOffsetAndTimestamp(state, currentTimeMs);</span>
+<span class="fc" id="L444">        log.flush();</span>
+<span class="fc" id="L445">    }</span>
+
+    private boolean maybeTransitionToLeader(CandidateState state, long currentTimeMs) {
+<span class="fc bfc" id="L448" title="All 2 branches covered.">        if (state.isVoteGranted()) {</span>
+<span class="fc" id="L449">            onBecomeLeader(currentTimeMs);</span>
+<span class="fc" id="L450">            return true;</span>
+        } else {
+<span class="fc" id="L452">            return false;</span>
+        }
+    }
+
+    private void onBecomeCandidate(long currentTimeMs) {
+<span class="fc" id="L457">        CandidateState state = quorum.candidateStateOrThrow();</span>
+<span class="fc bfc" id="L458" title="All 2 branches covered.">        if (!maybeTransitionToLeader(state, currentTimeMs)) {</span>
+<span class="fc" id="L459">            resetConnections();</span>
+<span class="fc" id="L460">            kafkaRaftMetrics.updateElectionStartMs(currentTimeMs);</span>
+        }
+<span class="fc" id="L462">    }</span>
+
+    private void transitionToCandidate(long currentTimeMs) {
+<span class="fc" id="L465">        quorum.transitionToCandidate();</span>
+<span class="fc" id="L466">        maybeFireLeaderChange();</span>
+<span class="fc" id="L467">        onBecomeCandidate(currentTimeMs);</span>
+<span class="fc" id="L468">    }</span>
+
+    private void transitionToUnattached(int epoch) {
+<span class="fc" id="L471">        quorum.transitionToUnattached(epoch);</span>
+<span class="fc" id="L472">        maybeFireLeaderChange();</span>
+<span class="fc" id="L473">        resetConnections();</span>
+<span class="fc" id="L474">    }</span>
+
+    private void transitionToResigned(List&lt;Integer&gt; preferredSuccessors) {
+<span class="fc" id="L477">        fetchPurgatory.completeAllExceptionally(</span>
+<span class="fc" id="L478">            Errors.NOT_LEADER_OR_FOLLOWER.exception(&quot;Not handling request since this node is resigning&quot;));</span>
+<span class="fc" id="L479">        quorum.transitionToResigned(preferredSuccessors);</span>
+<span class="fc" id="L480">        maybeFireLeaderChange();</span>
+<span class="fc" id="L481">        resetConnections();</span>
+<span class="fc" id="L482">    }</span>
+
+    private void transitionToVoted(int candidateId, int epoch) {
+<span class="fc" id="L485">        quorum.transitionToVoted(epoch, candidateId);</span>
+<span class="fc" id="L486">        maybeFireLeaderChange();</span>
+<span class="fc" id="L487">        resetConnections();</span>
+<span class="fc" id="L488">    }</span>
+
+    private void onBecomeFollower(long currentTimeMs) {
+<span class="fc" id="L491">        kafkaRaftMetrics.maybeUpdateElectionLatency(currentTimeMs);</span>
+
+<span class="fc" id="L493">        resetConnections();</span>
+
+        // After becoming a follower, we need to complete all pending fetches so that
+        // they can be re-sent to the leader without waiting for their expirations
+<span class="fc" id="L497">        fetchPurgatory.completeAllExceptionally(new NotLeaderOrFollowerException(</span>
+            &quot;Cannot process the fetch request because the node is no longer the leader.&quot;));
+
+        // Clearing the append purgatory should complete all futures exceptionally since this node is no longer the leader
+<span class="fc" id="L501">        appendPurgatory.completeAllExceptionally(new NotLeaderOrFollowerException(</span>
+            &quot;Failed to receive sufficient acknowledgments for this append before leader change.&quot;));
+<span class="fc" id="L503">    }</span>
+
+    private void transitionToFollower(
+        int epoch,
+        int leaderId,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L510">        quorum.transitionToFollower(epoch, leaderId);</span>
+<span class="fc" id="L511">        maybeFireLeaderChange();</span>
+<span class="fc" id="L512">        onBecomeFollower(currentTimeMs);</span>
+<span class="fc" id="L513">    }</span>
+
+    private VoteResponseData buildVoteResponse(Errors partitionLevelError, boolean voteGranted) {
+<span class="fc" id="L516">        return VoteResponse.singletonResponse(</span>
+            Errors.NONE,
+<span class="fc" id="L518">            log.topicPartition(),</span>
+            partitionLevelError,
+<span class="fc" id="L520">            quorum.epoch(),</span>
+<span class="fc" id="L521">            quorum.leaderIdOrSentinel(),</span>
+            voteGranted);
+    }
+
+    /**
+     * Handle a Vote request. This API may return the following errors:
+     *
+     * - {@link Errors#INCONSISTENT_CLUSTER_ID} if the cluster id is presented in request
+     *      but different from this node
+     * - {@link Errors#BROKER_NOT_AVAILABLE} if this node is currently shutting down
+     * - {@link Errors#FENCED_LEADER_EPOCH} if the epoch is smaller than this node's epoch
+     * - {@link Errors#INCONSISTENT_VOTER_SET} if the request suggests inconsistent voter membership (e.g.
+     *      if this node or the sender is not one of the current known voters)
+     * - {@link Errors#INVALID_REQUEST} if the last epoch or offset are invalid
+     */
+    private VoteResponseData handleVoteRequest(
+        RaftRequest.Inbound requestMetadata
+    ) {
+<span class="fc" id="L539">        VoteRequestData request = (VoteRequestData) requestMetadata.data;</span>
+
+<span class="fc bfc" id="L541" title="All 2 branches covered.">        if (!hasValidClusterId(request.clusterId())) {</span>
+<span class="fc" id="L542">            return new VoteResponseData().setErrorCode(Errors.INCONSISTENT_CLUSTER_ID.code());</span>
+        }
+
+<span class="pc bpc" id="L545" title="1 of 2 branches missed.">        if (!hasValidTopicPartition(request, log.topicPartition())) {</span>
+            // Until we support multi-raft, we treat individual topic partition mismatches as invalid requests
+<span class="nc" id="L547">            return new VoteResponseData().setErrorCode(Errors.INVALID_REQUEST.code());</span>
+        }
+
+<span class="fc" id="L550">        VoteRequestData.PartitionData partitionRequest =</span>
+<span class="fc" id="L551">            request.topics().get(0).partitions().get(0);</span>
+
+<span class="fc" id="L553">        int candidateId = partitionRequest.candidateId();</span>
+<span class="fc" id="L554">        int candidateEpoch = partitionRequest.candidateEpoch();</span>
+
+<span class="fc" id="L556">        int lastEpoch = partitionRequest.lastOffsetEpoch();</span>
+<span class="fc" id="L557">        long lastEpochEndOffset = partitionRequest.lastOffset();</span>
+<span class="fc bfc" id="L558" title="All 6 branches covered.">        if (lastEpochEndOffset &lt; 0 || lastEpoch &lt; 0 || lastEpoch &gt;= candidateEpoch) {</span>
+<span class="fc" id="L559">            return buildVoteResponse(Errors.INVALID_REQUEST, false);</span>
+        }
+
+<span class="fc" id="L562">        Optional&lt;Errors&gt; errorOpt = validateVoterOnlyRequest(candidateId, candidateEpoch);</span>
+<span class="fc bfc" id="L563" title="All 2 branches covered.">        if (errorOpt.isPresent()) {</span>
+<span class="fc" id="L564">            return buildVoteResponse(errorOpt.get(), false);</span>
+        }
+
+<span class="fc bfc" id="L567" title="All 2 branches covered.">        if (candidateEpoch &gt; quorum.epoch()) {</span>
+<span class="fc" id="L568">            transitionToUnattached(candidateEpoch);</span>
+        }
+
+<span class="fc" id="L571">        OffsetAndEpoch lastEpochEndOffsetAndEpoch = new OffsetAndEpoch(lastEpochEndOffset, lastEpoch);</span>
+<span class="fc bfc" id="L572" title="All 2 branches covered.">        boolean voteGranted = quorum.canGrantVote(candidateId, lastEpochEndOffsetAndEpoch.compareTo(endOffset()) &gt;= 0);</span>
+
+<span class="pc bpc" id="L574" title="1 of 4 branches missed.">        if (voteGranted &amp;&amp; quorum.isUnattached()) {</span>
+<span class="fc" id="L575">            transitionToVoted(candidateId, candidateEpoch);</span>
+        }
+
+<span class="fc bfc" id="L578" title="All 2 branches covered.">        logger.info(&quot;Vote request {} with epoch {} is {}&quot;, request, candidateEpoch, voteGranted ? &quot;granted&quot; : &quot;rejected&quot;);</span>
+<span class="fc" id="L579">        return buildVoteResponse(Errors.NONE, voteGranted);</span>
+    }
+
+    private boolean handleVoteResponse(
+        RaftResponse.Inbound responseMetadata,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L586">        int remoteNodeId = responseMetadata.sourceId();</span>
+<span class="fc" id="L587">        VoteResponseData response = (VoteResponseData) responseMetadata.data;</span>
+<span class="fc" id="L588">        Errors topLevelError = Errors.forCode(response.errorCode());</span>
+<span class="fc bfc" id="L589" title="All 2 branches covered.">        if (topLevelError != Errors.NONE) {</span>
+<span class="nc" id="L590">            return handleTopLevelError(topLevelError, responseMetadata);</span>
+        }
+
+<span class="pc bpc" id="L593" title="1 of 2 branches missed.">        if (!hasValidTopicPartition(response, log.topicPartition())) {</span>
+<span class="nc" id="L594">            return false;</span>
+        }
+
+<span class="fc" id="L597">        VoteResponseData.PartitionData partitionResponse =</span>
+<span class="fc" id="L598">            response.topics().get(0).partitions().get(0);</span>
+
+<span class="fc" id="L600">        Errors error = Errors.forCode(partitionResponse.errorCode());</span>
+<span class="fc" id="L601">        OptionalInt responseLeaderId = optionalLeaderId(partitionResponse.leaderId());</span>
+<span class="fc" id="L602">        int responseEpoch = partitionResponse.leaderEpoch();</span>
+
+<span class="fc" id="L604">        Optional&lt;Boolean&gt; handled = maybeHandleCommonResponse(</span>
+            error, responseLeaderId, responseEpoch, currentTimeMs);
+<span class="fc bfc" id="L606" title="All 2 branches covered.">        if (handled.isPresent()) {</span>
+<span class="fc" id="L607">            return handled.get();</span>
+<span class="pc bpc" id="L608" title="1 of 2 branches missed.">        } else if (error == Errors.NONE) {</span>
+<span class="pc bpc" id="L609" title="1 of 2 branches missed.">            if (quorum.isLeader()) {</span>
+<span class="nc" id="L610">                logger.debug(&quot;Ignoring vote response {} since we already became leader for epoch {}&quot;,</span>
+<span class="nc" id="L611">                    partitionResponse, quorum.epoch());</span>
+<span class="fc bfc" id="L612" title="All 2 branches covered.">            } else if (quorum.isCandidate()) {</span>
+<span class="fc" id="L613">                CandidateState state = quorum.candidateStateOrThrow();</span>
+<span class="fc bfc" id="L614" title="All 2 branches covered.">                if (partitionResponse.voteGranted()) {</span>
+<span class="fc" id="L615">                    state.recordGrantedVote(remoteNodeId);</span>
+<span class="fc" id="L616">                    maybeTransitionToLeader(state, currentTimeMs);</span>
+                } else {
+<span class="fc" id="L618">                    state.recordRejectedVote(remoteNodeId);</span>
+
+                    // If our vote is rejected, we go immediately to the random backoff. This
+                    // ensures that we are not stuck waiting for the election timeout when the
+                    // vote has become gridlocked.
+<span class="fc bfc" id="L623" title="All 4 branches covered.">                    if (state.isVoteRejected() &amp;&amp; !state.isBackingOff()) {</span>
+<span class="fc" id="L624">                        logger.info(&quot;Insufficient remaining votes to become leader (rejected by {}). &quot; +</span>
+<span class="fc" id="L625">                            &quot;We will backoff before retrying election again&quot;, state.rejectingVoters());</span>
+
+<span class="fc" id="L627">                        state.startBackingOff(</span>
+                            currentTimeMs,
+<span class="fc" id="L629">                            binaryExponentialElectionBackoffMs(state.retries())</span>
+                        );
+                    }
+                }
+<span class="fc" id="L633">            } else {</span>
+<span class="fc" id="L634">                logger.debug(&quot;Ignoring vote response {} since we are no longer a candidate in epoch {}&quot;,</span>
+<span class="fc" id="L635">                    partitionResponse, quorum.epoch());</span>
+            }
+<span class="fc" id="L637">            return true;</span>
+        } else {
+<span class="nc" id="L639">            return handleUnexpectedError(error, responseMetadata);</span>
+        }
+    }
+
+    private int binaryExponentialElectionBackoffMs(int retries) {
+<span class="pc bpc" id="L644" title="1 of 2 branches missed.">        if (retries &lt;= 0) {</span>
+<span class="nc" id="L645">            throw new IllegalArgumentException(&quot;Retries &quot; + retries + &quot; should be larger than zero&quot;);</span>
+        }
+        // upper limit exponential co-efficients at 20 to avoid overflow
+<span class="fc" id="L648">        return Math.min(RETRY_BACKOFF_BASE_MS * random.nextInt(2 &lt;&lt; Math.min(20, retries - 1)),</span>
+<span class="fc" id="L649">                raftConfig.electionBackoffMaxMs());</span>
+    }
+
+    private int strictExponentialElectionBackoffMs(int positionInSuccessors, int totalNumSuccessors) {
+<span class="pc bpc" id="L653" title="2 of 4 branches missed.">        if (positionInSuccessors &lt;= 0 || positionInSuccessors &gt;= totalNumSuccessors) {</span>
+<span class="nc" id="L654">            throw new IllegalArgumentException(&quot;Position &quot; + positionInSuccessors + &quot; should be larger than zero&quot; +</span>
+                    &quot; and smaller than total number of successors &quot; + totalNumSuccessors);
+        }
+
+<span class="fc" id="L658">        int retryBackOffBaseMs = raftConfig.electionBackoffMaxMs() &gt;&gt; (totalNumSuccessors - 1);</span>
+<span class="fc" id="L659">        return Math.min(raftConfig.electionBackoffMaxMs(), retryBackOffBaseMs &lt;&lt; (positionInSuccessors - 1));</span>
+    }
+
+    private BeginQuorumEpochResponseData buildBeginQuorumEpochResponse(Errors partitionLevelError) {
+<span class="fc" id="L663">        return BeginQuorumEpochResponse.singletonResponse(</span>
+            Errors.NONE,
+<span class="fc" id="L665">            log.topicPartition(),</span>
+            partitionLevelError,
+<span class="fc" id="L667">            quorum.epoch(),</span>
+<span class="fc" id="L668">            quorum.leaderIdOrSentinel());</span>
+    }
+
+    /**
+     * Handle a BeginEpoch request. This API may return the following errors:
+     *
+     * - {@link Errors#INCONSISTENT_CLUSTER_ID} if the cluster id is presented in request
+     *      but different from this node
+     * - {@link Errors#BROKER_NOT_AVAILABLE} if this node is currently shutting down
+     * - {@link Errors#INCONSISTENT_VOTER_SET} if the request suggests inconsistent voter membership (e.g.
+     *      if this node or the sender is not one of the current known voters)
+     * - {@link Errors#FENCED_LEADER_EPOCH} if the epoch is smaller than this node's epoch
+     */
+    private BeginQuorumEpochResponseData handleBeginQuorumEpochRequest(
+        RaftRequest.Inbound requestMetadata,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L685">        BeginQuorumEpochRequestData request = (BeginQuorumEpochRequestData) requestMetadata.data;</span>
+
+<span class="fc bfc" id="L687" title="All 2 branches covered.">        if (!hasValidClusterId(request.clusterId())) {</span>
+<span class="fc" id="L688">            return new BeginQuorumEpochResponseData().setErrorCode(Errors.INCONSISTENT_CLUSTER_ID.code());</span>
+        }
+
+<span class="pc bpc" id="L691" title="1 of 2 branches missed.">        if (!hasValidTopicPartition(request, log.topicPartition())) {</span>
+            // Until we support multi-raft, we treat topic partition mismatches as invalid requests
+<span class="nc" id="L693">            return new BeginQuorumEpochResponseData().setErrorCode(Errors.INVALID_REQUEST.code());</span>
+        }
+
+<span class="fc" id="L696">        BeginQuorumEpochRequestData.PartitionData partitionRequest =</span>
+<span class="fc" id="L697">            request.topics().get(0).partitions().get(0);</span>
+
+<span class="fc" id="L699">        int requestLeaderId = partitionRequest.leaderId();</span>
+<span class="fc" id="L700">        int requestEpoch = partitionRequest.leaderEpoch();</span>
+
+<span class="fc" id="L702">        Optional&lt;Errors&gt; errorOpt = validateVoterOnlyRequest(requestLeaderId, requestEpoch);</span>
+<span class="fc bfc" id="L703" title="All 2 branches covered.">        if (errorOpt.isPresent()) {</span>
+<span class="fc" id="L704">            return buildBeginQuorumEpochResponse(errorOpt.get());</span>
+        }
+
+<span class="fc" id="L707">        maybeTransition(OptionalInt.of(requestLeaderId), requestEpoch, currentTimeMs);</span>
+<span class="fc" id="L708">        return buildBeginQuorumEpochResponse(Errors.NONE);</span>
+    }
+
+    private boolean handleBeginQuorumEpochResponse(
+        RaftResponse.Inbound responseMetadata,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L715">        int remoteNodeId = responseMetadata.sourceId();</span>
+<span class="fc" id="L716">        BeginQuorumEpochResponseData response = (BeginQuorumEpochResponseData) responseMetadata.data;</span>
+<span class="fc" id="L717">        Errors topLevelError = Errors.forCode(response.errorCode());</span>
+<span class="fc bfc" id="L718" title="All 2 branches covered.">        if (topLevelError != Errors.NONE) {</span>
+<span class="nc" id="L719">            return handleTopLevelError(topLevelError, responseMetadata);</span>
+        }
+
+<span class="pc bpc" id="L722" title="1 of 2 branches missed.">        if (!hasValidTopicPartition(response, log.topicPartition())) {</span>
+<span class="nc" id="L723">            return false;</span>
+        }
+
+<span class="fc" id="L726">        BeginQuorumEpochResponseData.PartitionData partitionResponse =</span>
+<span class="fc" id="L727">            response.topics().get(0).partitions().get(0);</span>
+
+<span class="fc" id="L729">        Errors partitionError = Errors.forCode(partitionResponse.errorCode());</span>
+<span class="fc" id="L730">        OptionalInt responseLeaderId = optionalLeaderId(partitionResponse.leaderId());</span>
+<span class="fc" id="L731">        int responseEpoch = partitionResponse.leaderEpoch();</span>
+
+<span class="fc" id="L733">        Optional&lt;Boolean&gt; handled = maybeHandleCommonResponse(</span>
+            partitionError, responseLeaderId, responseEpoch, currentTimeMs);
+<span class="fc bfc" id="L735" title="All 2 branches covered.">        if (handled.isPresent()) {</span>
+<span class="fc" id="L736">            return handled.get();</span>
+<span class="pc bpc" id="L737" title="1 of 2 branches missed.">        } else if (partitionError == Errors.NONE) {</span>
+<span class="pc bpc" id="L738" title="1 of 2 branches missed.">            if (quorum.isLeader()) {</span>
+<span class="fc" id="L739">                LeaderState&lt;T&gt; state = quorum.leaderStateOrThrow();</span>
+<span class="fc" id="L740">                state.addAcknowledgementFrom(remoteNodeId);</span>
+<span class="fc" id="L741">            } else {</span>
+<span class="nc" id="L742">                logger.debug(&quot;Ignoring BeginQuorumEpoch response {} since &quot; +</span>
+                    &quot;this node is not the leader anymore&quot;, response);
+            }
+<span class="fc" id="L745">            return true;</span>
+        } else {
+<span class="nc" id="L747">            return handleUnexpectedError(partitionError, responseMetadata);</span>
+        }
+    }
+
+    private EndQuorumEpochResponseData buildEndQuorumEpochResponse(Errors partitionLevelError) {
+<span class="fc" id="L752">        return EndQuorumEpochResponse.singletonResponse(</span>
+            Errors.NONE,
+<span class="fc" id="L754">            log.topicPartition(),</span>
+            partitionLevelError,
+<span class="fc" id="L756">            quorum.epoch(),</span>
+<span class="fc" id="L757">            quorum.leaderIdOrSentinel());</span>
+    }
+
+    /**
+     * Handle an EndEpoch request. This API may return the following errors:
+     *
+     * - {@link Errors#INCONSISTENT_CLUSTER_ID} if the cluster id is presented in request
+     *      but different from this node
+     * - {@link Errors#BROKER_NOT_AVAILABLE} if this node is currently shutting down
+     * - {@link Errors#INCONSISTENT_VOTER_SET} if the request suggests inconsistent voter membership (e.g.
+     *      if this node or the sender is not one of the current known voters)
+     * - {@link Errors#FENCED_LEADER_EPOCH} if the epoch is smaller than this node's epoch
+     */
+    private EndQuorumEpochResponseData handleEndQuorumEpochRequest(
+        RaftRequest.Inbound requestMetadata,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L774">        EndQuorumEpochRequestData request = (EndQuorumEpochRequestData) requestMetadata.data;</span>
+
+<span class="fc bfc" id="L776" title="All 2 branches covered.">        if (!hasValidClusterId(request.clusterId())) {</span>
+<span class="fc" id="L777">            return new EndQuorumEpochResponseData().setErrorCode(Errors.INCONSISTENT_CLUSTER_ID.code());</span>
+        }
+
+<span class="pc bpc" id="L780" title="1 of 2 branches missed.">        if (!hasValidTopicPartition(request, log.topicPartition())) {</span>
+            // Until we support multi-raft, we treat topic partition mismatches as invalid requests
+<span class="nc" id="L782">            return new EndQuorumEpochResponseData().setErrorCode(Errors.INVALID_REQUEST.code());</span>
+        }
+
+<span class="fc" id="L785">        EndQuorumEpochRequestData.PartitionData partitionRequest =</span>
+<span class="fc" id="L786">            request.topics().get(0).partitions().get(0);</span>
+
+<span class="fc" id="L788">        int requestEpoch = partitionRequest.leaderEpoch();</span>
+<span class="fc" id="L789">        int requestLeaderId = partitionRequest.leaderId();</span>
+
+<span class="fc" id="L791">        Optional&lt;Errors&gt; errorOpt = validateVoterOnlyRequest(requestLeaderId, requestEpoch);</span>
+<span class="fc bfc" id="L792" title="All 2 branches covered.">        if (errorOpt.isPresent()) {</span>
+<span class="fc" id="L793">            return buildEndQuorumEpochResponse(errorOpt.get());</span>
+        }
+<span class="fc" id="L795">        maybeTransition(OptionalInt.of(requestLeaderId), requestEpoch, currentTimeMs);</span>
+
+<span class="fc bfc" id="L797" title="All 2 branches covered.">        if (quorum.isFollower()) {</span>
+<span class="fc" id="L798">            FollowerState state = quorum.followerStateOrThrow();</span>
+<span class="pc bpc" id="L799" title="1 of 2 branches missed.">            if (state.leaderId() == requestLeaderId) {</span>
+<span class="fc" id="L800">                List&lt;Integer&gt; preferredSuccessors = partitionRequest.preferredSuccessors();</span>
+<span class="fc" id="L801">                long electionBackoffMs = endEpochElectionBackoff(preferredSuccessors);</span>
+<span class="fc" id="L802">                logger.debug(&quot;Overriding follower fetch timeout to {} after receiving &quot; +</span>
+<span class="fc" id="L803">                    &quot;EndQuorumEpoch request from leader {} in epoch {}&quot;, electionBackoffMs,</span>
+<span class="fc" id="L804">                    requestLeaderId, requestEpoch);</span>
+<span class="fc" id="L805">                state.overrideFetchTimeout(currentTimeMs, electionBackoffMs);</span>
+            }
+        }
+<span class="fc" id="L808">        return buildEndQuorumEpochResponse(Errors.NONE);</span>
+    }
+
+    private long endEpochElectionBackoff(List&lt;Integer&gt; preferredSuccessors) {
+        // Based on the priority inside the preferred successors, choose the corresponding delayed
+        // election backoff time based on strict exponential mechanism so that the most up-to-date
+        // voter has a higher chance to be elected. If the node's priority is highest, become
+        // candidate immediately instead of waiting for next poll.
+<span class="fc" id="L816">        int position = preferredSuccessors.indexOf(quorum.localIdOrThrow());</span>
+<span class="fc bfc" id="L817" title="All 2 branches covered.">        if (position &lt;= 0) {</span>
+<span class="fc" id="L818">            return 0;</span>
+        } else {
+<span class="fc" id="L820">            return strictExponentialElectionBackoffMs(position, preferredSuccessors.size());</span>
+        }
+    }
+
+    private boolean handleEndQuorumEpochResponse(
+        RaftResponse.Inbound responseMetadata,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L828">        EndQuorumEpochResponseData response = (EndQuorumEpochResponseData) responseMetadata.data;</span>
+<span class="fc" id="L829">        Errors topLevelError = Errors.forCode(response.errorCode());</span>
+<span class="fc bfc" id="L830" title="All 2 branches covered.">        if (topLevelError != Errors.NONE) {</span>
+<span class="nc" id="L831">            return handleTopLevelError(topLevelError, responseMetadata);</span>
+        }
+
+<span class="pc bpc" id="L834" title="1 of 2 branches missed.">        if (!hasValidTopicPartition(response, log.topicPartition())) {</span>
+<span class="nc" id="L835">            return false;</span>
+        }
+
+<span class="fc" id="L838">        EndQuorumEpochResponseData.PartitionData partitionResponse =</span>
+<span class="fc" id="L839">            response.topics().get(0).partitions().get(0);</span>
+
+<span class="fc" id="L841">        Errors partitionError = Errors.forCode(partitionResponse.errorCode());</span>
+<span class="fc" id="L842">        OptionalInt responseLeaderId = optionalLeaderId(partitionResponse.leaderId());</span>
+<span class="fc" id="L843">        int responseEpoch = partitionResponse.leaderEpoch();</span>
+
+<span class="fc" id="L845">        Optional&lt;Boolean&gt; handled = maybeHandleCommonResponse(</span>
+            partitionError, responseLeaderId, responseEpoch, currentTimeMs);
+<span class="fc bfc" id="L847" title="All 2 branches covered.">        if (handled.isPresent()) {</span>
+<span class="fc" id="L848">            return handled.get();</span>
+<span class="pc bpc" id="L849" title="1 of 2 branches missed.">        } else if (partitionError == Errors.NONE) {</span>
+<span class="fc" id="L850">            ResignedState resignedState = quorum.resignedStateOrThrow();</span>
+<span class="fc" id="L851">            resignedState.acknowledgeResignation(responseMetadata.sourceId());</span>
+<span class="fc" id="L852">            return true;</span>
+        } else {
+<span class="nc" id="L854">            return handleUnexpectedError(partitionError, responseMetadata);</span>
+        }
+    }
+
+    private FetchResponseData buildFetchResponse(
+        Errors error,
+        Records records,
+        ValidOffsetAndEpoch validOffsetAndEpoch,
+        Optional&lt;LogOffsetMetadata&gt; highWatermark
+    ) {
+<span class="fc" id="L864">        return RaftUtil.singletonFetchResponse(log.topicPartition(), Errors.NONE, partitionData -&gt; {</span>
+<span class="fc" id="L865">            partitionData</span>
+<span class="fc" id="L866">                .setRecords(records)</span>
+<span class="fc" id="L867">                .setErrorCode(error.code())</span>
+<span class="fc" id="L868">                .setLogStartOffset(log.startOffset())</span>
+<span class="fc" id="L869">                .setHighWatermark(highWatermark</span>
+<span class="fc" id="L870">                    .map(offsetMetadata -&gt; offsetMetadata.offset)</span>
+<span class="fc" id="L871">                    .orElse(-1L));</span>
+
+<span class="fc" id="L873">            partitionData.currentLeader()</span>
+<span class="fc" id="L874">                .setLeaderEpoch(quorum.epoch())</span>
+<span class="fc" id="L875">                .setLeaderId(quorum.leaderIdOrSentinel());</span>
+
+<span class="fc bfc" id="L877" title="All 3 branches covered.">            switch (validOffsetAndEpoch.kind()) {</span>
+                case DIVERGING:
+<span class="fc" id="L879">                    partitionData.divergingEpoch()</span>
+<span class="fc" id="L880">                        .setEpoch(validOffsetAndEpoch.offsetAndEpoch().epoch)</span>
+<span class="fc" id="L881">                        .setEndOffset(validOffsetAndEpoch.offsetAndEpoch().offset);</span>
+<span class="fc" id="L882">                    break;</span>
+                case SNAPSHOT:
+<span class="fc" id="L884">                    partitionData.snapshotId()</span>
+<span class="fc" id="L885">                        .setEpoch(validOffsetAndEpoch.offsetAndEpoch().epoch)</span>
+<span class="fc" id="L886">                        .setEndOffset(validOffsetAndEpoch.offsetAndEpoch().offset);</span>
+<span class="fc" id="L887">                    break;</span>
+                default:
+            }
+<span class="fc" id="L890">        });</span>
+    }
+
+    private FetchResponseData buildEmptyFetchResponse(
+        Errors error,
+        Optional&lt;LogOffsetMetadata&gt; highWatermark
+    ) {
+<span class="fc" id="L897">        return buildFetchResponse(</span>
+            error,
+            MemoryRecords.EMPTY,
+<span class="fc" id="L900">            ValidOffsetAndEpoch.valid(),</span>
+            highWatermark
+        );
+    }
+
+    private boolean hasValidClusterId(String requestClusterId) {
+        // We don't enforce the cluster id if it is not provided.
+<span class="fc bfc" id="L907" title="All 2 branches covered.">        if (requestClusterId == null) {</span>
+<span class="fc" id="L908">            return true;</span>
+        }
+<span class="fc" id="L910">        return clusterId.equals(requestClusterId);</span>
+    }
+
+    /**
+     * Handle a Fetch request. The fetch offset and last fetched epoch are always
+     * validated against the current log. In the case that they do not match, the response will
+     * indicate the diverging offset/epoch. A follower is expected to truncate its log in this
+     * case and resend the fetch.
+     *
+     * This API may return the following errors:
+     *
+     * - {@link Errors#INCONSISTENT_CLUSTER_ID} if the cluster id is presented in request
+     *     but different from this node
+     * - {@link Errors#BROKER_NOT_AVAILABLE} if this node is currently shutting down
+     * - {@link Errors#FENCED_LEADER_EPOCH} if the epoch is smaller than this node's epoch
+     * - {@link Errors#INVALID_REQUEST} if the request epoch is larger than the leader's current epoch
+     *     or if either the fetch offset or the last fetched epoch is invalid
+     */
+    private CompletableFuture&lt;FetchResponseData&gt; handleFetchRequest(
+        RaftRequest.Inbound requestMetadata,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L932">        FetchRequestData request = (FetchRequestData) requestMetadata.data;</span>
+
+<span class="fc bfc" id="L934" title="All 2 branches covered.">        if (!hasValidClusterId(request.clusterId())) {</span>
+<span class="fc" id="L935">            return completedFuture(new FetchResponseData().setErrorCode(Errors.INCONSISTENT_CLUSTER_ID.code()));</span>
+        }
+
+<span class="pc bpc" id="L938" title="1 of 2 branches missed.">        if (!hasValidTopicPartition(request, log.topicPartition())) {</span>
+            // Until we support multi-raft, we treat topic partition mismatches as invalid requests
+<span class="nc" id="L940">            return completedFuture(new FetchResponseData().setErrorCode(Errors.INVALID_REQUEST.code()));</span>
+        }
+
+<span class="fc" id="L943">        FetchRequestData.FetchPartition fetchPartition = request.topics().get(0).partitions().get(0);</span>
+<span class="fc bfc" id="L944" title="All 2 branches covered.">        if (request.maxWaitMs() &lt; 0</span>
+<span class="fc bfc" id="L945" title="All 2 branches covered.">            || fetchPartition.fetchOffset() &lt; 0</span>
+<span class="fc bfc" id="L946" title="All 2 branches covered.">            || fetchPartition.lastFetchedEpoch() &lt; 0</span>
+<span class="fc bfc" id="L947" title="All 2 branches covered.">            || fetchPartition.lastFetchedEpoch() &gt; fetchPartition.currentLeaderEpoch()) {</span>
+<span class="fc" id="L948">            return completedFuture(buildEmptyFetchResponse(</span>
+<span class="fc" id="L949">                Errors.INVALID_REQUEST, Optional.empty()));</span>
+        }
+
+<span class="fc" id="L952">        FetchResponseData response = tryCompleteFetchRequest(request.replicaId(), fetchPartition, currentTimeMs);</span>
+<span class="fc" id="L953">        FetchResponseData.PartitionData partitionResponse =</span>
+<span class="fc" id="L954">            response.responses().get(0).partitions().get(0);</span>
+
+<span class="fc bfc" id="L956" title="All 2 branches covered.">        if (partitionResponse.errorCode() != Errors.NONE.code()</span>
+<span class="fc bfc" id="L957" title="All 2 branches covered.">            || FetchResponse.recordsSize(partitionResponse) &gt; 0</span>
+<span class="fc bfc" id="L958" title="All 2 branches covered.">            || request.maxWaitMs() == 0) {</span>
+<span class="fc" id="L959">            return completedFuture(response);</span>
+        }
+
+<span class="fc" id="L962">        CompletableFuture&lt;Long&gt; future = fetchPurgatory.await(</span>
+<span class="fc" id="L963">            fetchPartition.fetchOffset(),</span>
+<span class="fc" id="L964">            request.maxWaitMs());</span>
+
+<span class="fc" id="L966">        return future.handle((completionTimeMs, exception) -&gt; {</span>
+<span class="fc bfc" id="L967" title="All 2 branches covered.">            if (exception != null) {</span>
+<span class="pc bpc" id="L968" title="1 of 2 branches missed.">                Throwable cause = exception instanceof ExecutionException ?</span>
+<span class="pc" id="L969">                    exception.getCause() : exception;</span>
+
+                // If the fetch timed out in purgatory, it means no new data is available,
+                // and we will complete the fetch successfully. Otherwise, if there was
+                // any other error, we need to return it.
+<span class="fc" id="L974">                Errors error = Errors.forException(cause);</span>
+<span class="fc bfc" id="L975" title="All 2 branches covered.">                if (error != Errors.REQUEST_TIMED_OUT) {</span>
+<span class="fc" id="L976">                    logger.debug(&quot;Failed to handle fetch from {} at {} due to {}&quot;,</span>
+<span class="fc" id="L977">                        request.replicaId(), fetchPartition.fetchOffset(), error);</span>
+<span class="fc" id="L978">                    return buildEmptyFetchResponse(error, Optional.empty());</span>
+                }
+            }
+
+            // FIXME: `completionTimeMs`, which can be null
+<span class="fc" id="L983">            logger.trace(&quot;Completing delayed fetch from {} starting at offset {} at {}&quot;,</span>
+<span class="fc" id="L984">                request.replicaId(), fetchPartition.fetchOffset(), completionTimeMs);</span>
+
+<span class="fc" id="L986">            return tryCompleteFetchRequest(request.replicaId(), fetchPartition, time.milliseconds());</span>
+        });
+    }
+
+    private FetchResponseData tryCompleteFetchRequest(
+        int replicaId,
+        FetchRequestData.FetchPartition request,
+        long currentTimeMs
+    ) {
+        try {
+<span class="fc" id="L996">            Optional&lt;Errors&gt; errorOpt = validateLeaderOnlyRequest(request.currentLeaderEpoch());</span>
+<span class="fc bfc" id="L997" title="All 2 branches covered.">            if (errorOpt.isPresent()) {</span>
+<span class="fc" id="L998">                return buildEmptyFetchResponse(errorOpt.get(), Optional.empty());</span>
+            }
+
+<span class="fc" id="L1001">            long fetchOffset = request.fetchOffset();</span>
+<span class="fc" id="L1002">            int lastFetchedEpoch = request.lastFetchedEpoch();</span>
+<span class="fc" id="L1003">            LeaderState&lt;T&gt; state = quorum.leaderStateOrThrow();</span>
+<span class="fc" id="L1004">            ValidOffsetAndEpoch validOffsetAndEpoch = log.validateOffsetAndEpoch(fetchOffset, lastFetchedEpoch);</span>
+
+            final Records records;
+<span class="fc bfc" id="L1007" title="All 2 branches covered.">            if (validOffsetAndEpoch.kind() == ValidOffsetAndEpoch.Kind.VALID) {</span>
+<span class="fc" id="L1008">                LogFetchInfo info = log.read(fetchOffset, Isolation.UNCOMMITTED);</span>
+
+<span class="fc bfc" id="L1010" title="All 2 branches covered.">                if (state.updateReplicaState(replicaId, currentTimeMs, info.startOffsetMetadata)) {</span>
+<span class="fc" id="L1011">                    onUpdateLeaderHighWatermark(state, currentTimeMs);</span>
+                }
+
+<span class="fc" id="L1014">                records = info.records;</span>
+<span class="fc" id="L1015">            } else {</span>
+<span class="fc" id="L1016">                records = MemoryRecords.EMPTY;</span>
+            }
+
+<span class="fc" id="L1019">            return buildFetchResponse(Errors.NONE, records, validOffsetAndEpoch, state.highWatermark());</span>
+<span class="nc" id="L1020">        } catch (Exception e) {</span>
+<span class="nc" id="L1021">            logger.error(&quot;Caught unexpected error in fetch completion of request {}&quot;, request, e);</span>
+<span class="nc" id="L1022">            return buildEmptyFetchResponse(Errors.UNKNOWN_SERVER_ERROR, Optional.empty());</span>
+        }
+    }
+
+    private static OptionalInt optionalLeaderId(int leaderIdOrNil) {
+<span class="fc bfc" id="L1027" title="All 2 branches covered.">        if (leaderIdOrNil &lt; 0)</span>
+<span class="fc" id="L1028">            return OptionalInt.empty();</span>
+<span class="fc" id="L1029">        return OptionalInt.of(leaderIdOrNil);</span>
+    }
+
+    private static String listenerName(Listener&lt;?&gt; listener) {
+<span class="fc" id="L1033">        return String.format(&quot;%s@%s&quot;, listener.getClass().getTypeName(), System.identityHashCode(listener));</span>
+    }
+
+    private boolean handleFetchResponse(
+        RaftResponse.Inbound responseMetadata,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L1040">        FetchResponseData response = (FetchResponseData) responseMetadata.data;</span>
+<span class="fc" id="L1041">        Errors topLevelError = Errors.forCode(response.errorCode());</span>
+<span class="fc bfc" id="L1042" title="All 2 branches covered.">        if (topLevelError != Errors.NONE) {</span>
+<span class="nc" id="L1043">            return handleTopLevelError(topLevelError, responseMetadata);</span>
+        }
+
+<span class="pc bpc" id="L1046" title="1 of 2 branches missed.">        if (!RaftUtil.hasValidTopicPartition(response, log.topicPartition())) {</span>
+<span class="nc" id="L1047">            return false;</span>
+        }
+
+<span class="fc" id="L1050">        FetchResponseData.PartitionData partitionResponse =</span>
+<span class="fc" id="L1051">            response.responses().get(0).partitions().get(0);</span>
+
+<span class="fc" id="L1053">        FetchResponseData.LeaderIdAndEpoch currentLeaderIdAndEpoch = partitionResponse.currentLeader();</span>
+<span class="fc" id="L1054">        OptionalInt responseLeaderId = optionalLeaderId(currentLeaderIdAndEpoch.leaderId());</span>
+<span class="fc" id="L1055">        int responseEpoch = currentLeaderIdAndEpoch.leaderEpoch();</span>
+<span class="fc" id="L1056">        Errors error = Errors.forCode(partitionResponse.errorCode());</span>
+
+<span class="fc" id="L1058">        Optional&lt;Boolean&gt; handled = maybeHandleCommonResponse(</span>
+            error, responseLeaderId, responseEpoch, currentTimeMs);
+<span class="fc bfc" id="L1060" title="All 2 branches covered.">        if (handled.isPresent()) {</span>
+<span class="fc" id="L1061">            return handled.get();</span>
+        }
+
+<span class="fc" id="L1064">        FollowerState state = quorum.followerStateOrThrow();</span>
+<span class="pc bpc" id="L1065" title="1 of 2 branches missed.">        if (error == Errors.NONE) {</span>
+<span class="fc" id="L1066">            FetchResponseData.EpochEndOffset divergingEpoch = partitionResponse.divergingEpoch();</span>
+<span class="fc bfc" id="L1067" title="All 2 branches covered.">            if (divergingEpoch.epoch() &gt;= 0) {</span>
+                // The leader is asking us to truncate before continuing
+<span class="fc" id="L1069">                final OffsetAndEpoch divergingOffsetAndEpoch = new OffsetAndEpoch(</span>
+<span class="fc" id="L1070">                    divergingEpoch.endOffset(), divergingEpoch.epoch());</span>
+
+<span class="fc" id="L1072">                state.highWatermark().ifPresent(highWatermark -&gt; {</span>
+<span class="pc bpc" id="L1073" title="1 of 2 branches missed.">                    if (divergingOffsetAndEpoch.offset &lt; highWatermark.offset) {</span>
+<span class="nc" id="L1074">                        throw new KafkaException(&quot;The leader requested truncation to offset &quot; +</span>
+                            divergingOffsetAndEpoch.offset + &quot;, which is below the current high watermark&quot; +
+                            &quot; &quot; + highWatermark);
+                    }
+<span class="fc" id="L1078">                });</span>
+
+<span class="fc" id="L1080">                long truncationOffset = log.truncateToEndOffset(divergingOffsetAndEpoch);</span>
+<span class="fc" id="L1081">                logger.info(&quot;Truncated to offset {} from Fetch response from leader {}&quot;, truncationOffset, quorum.leaderIdOrSentinel());</span>
+<span class="fc bfc" id="L1082" title="All 2 branches covered.">            } else if (partitionResponse.snapshotId().epoch() &gt;= 0 ||</span>
+<span class="fc bfc" id="L1083" title="All 2 branches covered.">                       partitionResponse.snapshotId().endOffset() &gt;= 0) {</span>
+                // The leader is asking us to fetch a snapshot
+
+<span class="fc bfc" id="L1086" title="All 2 branches covered.">                if (partitionResponse.snapshotId().epoch() &lt; 0) {</span>
+<span class="fc" id="L1087">                    logger.error(</span>
+                        &quot;The leader sent a snapshot id with a valid end offset {} but with an invalid epoch {}&quot;,
+<span class="fc" id="L1089">                        partitionResponse.snapshotId().endOffset(),</span>
+<span class="fc" id="L1090">                        partitionResponse.snapshotId().epoch()</span>
+                    );
+<span class="fc" id="L1092">                    return false;</span>
+<span class="fc bfc" id="L1093" title="All 2 branches covered.">                } else if (partitionResponse.snapshotId().endOffset() &lt; 0) {</span>
+<span class="fc" id="L1094">                    logger.error(</span>
+                        &quot;The leader sent a snapshot id with a valid epoch {} but with an invalid end offset {}&quot;,
+<span class="fc" id="L1096">                        partitionResponse.snapshotId().epoch(),</span>
+<span class="fc" id="L1097">                        partitionResponse.snapshotId().endOffset()</span>
+                    );
+<span class="fc" id="L1099">                    return false;</span>
+                } else {
+<span class="fc" id="L1101">                    final OffsetAndEpoch snapshotId = new OffsetAndEpoch(</span>
+<span class="fc" id="L1102">                        partitionResponse.snapshotId().endOffset(),</span>
+<span class="fc" id="L1103">                        partitionResponse.snapshotId().epoch()</span>
+                    );
+
+                    // Do not validate the snapshot id against the local replicated log
+                    // since this snapshot is expected to reference offsets and epochs
+                    // greater than the log end offset and high-watermark
+<span class="fc" id="L1109">                    state.setFetchingSnapshot(log.storeSnapshot(snapshotId));</span>
+<span class="fc" id="L1110">                }</span>
+            } else {
+<span class="fc" id="L1112">                Records records = FetchResponse.recordsOrFail(partitionResponse);</span>
+<span class="fc bfc" id="L1113" title="All 2 branches covered.">                if (records.sizeInBytes() &gt; 0) {</span>
+<span class="fc" id="L1114">                    appendAsFollower(records);</span>
+                }
+
+<span class="fc bfc" id="L1117" title="All 2 branches covered.">                OptionalLong highWatermark = partitionResponse.highWatermark() &lt; 0 ?</span>
+<span class="fc" id="L1118">                    OptionalLong.empty() : OptionalLong.of(partitionResponse.highWatermark());</span>
+<span class="fc" id="L1119">                updateFollowerHighWatermark(state, highWatermark);</span>
+            }
+
+<span class="fc" id="L1122">            state.resetFetchTimeout(currentTimeMs);</span>
+<span class="fc" id="L1123">            return true;</span>
+        } else {
+<span class="nc" id="L1125">            return handleUnexpectedError(error, responseMetadata);</span>
+        }
+    }
+
+    private void appendAsFollower(
+        Records records
+    ) {
+<span class="fc" id="L1132">        LogAppendInfo info = log.appendAsFollower(records);</span>
+<span class="fc" id="L1133">        log.flush();</span>
+
+<span class="fc" id="L1135">        OffsetAndEpoch endOffset = endOffset();</span>
+<span class="fc" id="L1136">        kafkaRaftMetrics.updateFetchedRecords(info.lastOffset - info.firstOffset + 1);</span>
+<span class="fc" id="L1137">        kafkaRaftMetrics.updateLogEnd(endOffset);</span>
+<span class="fc" id="L1138">        logger.trace(&quot;Follower end offset updated to {} after append&quot;, endOffset);</span>
+<span class="fc" id="L1139">    }</span>
+
+    private LogAppendInfo appendAsLeader(
+        Records records
+    ) {
+<span class="fc" id="L1144">        LogAppendInfo info = log.appendAsLeader(records, quorum.epoch());</span>
+<span class="fc" id="L1145">        OffsetAndEpoch endOffset = endOffset();</span>
+<span class="fc" id="L1146">        kafkaRaftMetrics.updateAppendRecords(info.lastOffset - info.firstOffset + 1);</span>
+<span class="fc" id="L1147">        kafkaRaftMetrics.updateLogEnd(endOffset);</span>
+<span class="fc" id="L1148">        logger.trace(&quot;Leader appended records at base offset {}, new end offset is {}&quot;, info.firstOffset, endOffset);</span>
+<span class="fc" id="L1149">        return info;</span>
+    }
+
+    private DescribeQuorumResponseData handleDescribeQuorumRequest(
+        RaftRequest.Inbound requestMetadata,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L1156">        DescribeQuorumRequestData describeQuorumRequestData = (DescribeQuorumRequestData) requestMetadata.data;</span>
+<span class="pc bpc" id="L1157" title="1 of 2 branches missed.">        if (!hasValidTopicPartition(describeQuorumRequestData, log.topicPartition())) {</span>
+<span class="nc" id="L1158">            return DescribeQuorumRequest.getPartitionLevelErrorResponse(</span>
+                describeQuorumRequestData, Errors.UNKNOWN_TOPIC_OR_PARTITION);
+        }
+
+<span class="pc bpc" id="L1162" title="1 of 2 branches missed.">        if (!quorum.isLeader()) {</span>
+<span class="nc" id="L1163">            return DescribeQuorumRequest.getTopLevelErrorResponse(Errors.INVALID_REQUEST);</span>
+        }
+
+<span class="fc" id="L1166">        LeaderState&lt;T&gt; leaderState = quorum.leaderStateOrThrow();</span>
+<span class="fc" id="L1167">        return DescribeQuorumResponse.singletonResponse(log.topicPartition(),</span>
+<span class="fc" id="L1168">            leaderState.localId(),</span>
+<span class="fc" id="L1169">            leaderState.epoch(),</span>
+<span class="pc bpc" id="L1170" title="1 of 2 branches missed.">            leaderState.highWatermark().isPresent() ? leaderState.highWatermark().get().offset : -1,</span>
+<span class="fc" id="L1171">            convertToReplicaStates(leaderState.getVoterEndOffsets()),</span>
+<span class="fc" id="L1172">            convertToReplicaStates(leaderState.getObserverStates(currentTimeMs))</span>
+        );
+    }
+
+    /**
+     * Handle a FetchSnapshot request, similar to the Fetch request but we use {@link UnalignedRecords}
+     * in response because the records are not necessarily offset-aligned.
+     *
+     * This API may return the following errors:
+     *
+     * - {@link Errors#INCONSISTENT_CLUSTER_ID} if the cluster id is presented in request
+     *     but different from this node
+     * - {@link Errors#BROKER_NOT_AVAILABLE} if this node is currently shutting down
+     * - {@link Errors#FENCED_LEADER_EPOCH} if the epoch is smaller than this node's epoch
+     * - {@link Errors#INVALID_REQUEST} if the request epoch is larger than the leader's current epoch
+     *     or if either the fetch offset or the last fetched epoch is invalid
+     * - {@link Errors#SNAPSHOT_NOT_FOUND} if the request snapshot id does not exists
+     * - {@link Errors#POSITION_OUT_OF_RANGE} if the request snapshot offset out of range
+     */
+    private FetchSnapshotResponseData handleFetchSnapshotRequest(
+        RaftRequest.Inbound requestMetadata
+    ) {
+<span class="fc" id="L1194">        FetchSnapshotRequestData data = (FetchSnapshotRequestData) requestMetadata.data;</span>
+
+<span class="fc bfc" id="L1196" title="All 2 branches covered.">        if (!hasValidClusterId(data.clusterId())) {</span>
+<span class="fc" id="L1197">            return new FetchSnapshotResponseData().setErrorCode(Errors.INCONSISTENT_CLUSTER_ID.code());</span>
+        }
+
+<span class="pc bpc" id="L1200" title="3 of 4 branches missed.">        if (data.topics().size() != 1 &amp;&amp; data.topics().get(0).partitions().size() != 1) {</span>
+<span class="nc" id="L1201">            return FetchSnapshotResponse.withTopLevelError(Errors.INVALID_REQUEST);</span>
+        }
+
+<span class="fc" id="L1204">        Optional&lt;FetchSnapshotRequestData.PartitionSnapshot&gt; partitionSnapshotOpt = FetchSnapshotRequest</span>
+<span class="fc" id="L1205">            .forTopicPartition(data, log.topicPartition());</span>
+<span class="fc bfc" id="L1206" title="All 2 branches covered.">        if (!partitionSnapshotOpt.isPresent()) {</span>
+            // The Raft client assumes that there is only one topic partition.
+<span class="fc" id="L1208">            TopicPartition unknownTopicPartition = new TopicPartition(</span>
+<span class="fc" id="L1209">                data.topics().get(0).name(),</span>
+<span class="fc" id="L1210">                data.topics().get(0).partitions().get(0).partition()</span>
+            );
+
+<span class="fc" id="L1213">            return FetchSnapshotResponse.singleton(</span>
+                unknownTopicPartition,
+<span class="fc" id="L1215">                responsePartitionSnapshot -&gt; responsePartitionSnapshot</span>
+<span class="fc" id="L1216">                    .setErrorCode(Errors.UNKNOWN_TOPIC_OR_PARTITION.code())</span>
+            );
+        }
+
+<span class="fc" id="L1220">        FetchSnapshotRequestData.PartitionSnapshot partitionSnapshot = partitionSnapshotOpt.get();</span>
+<span class="fc" id="L1221">        Optional&lt;Errors&gt; leaderValidation = validateLeaderOnlyRequest(</span>
+<span class="fc" id="L1222">                partitionSnapshot.currentLeaderEpoch()</span>
+        );
+<span class="fc bfc" id="L1224" title="All 2 branches covered.">        if (leaderValidation.isPresent()) {</span>
+<span class="fc" id="L1225">            return FetchSnapshotResponse.singleton(</span>
+<span class="fc" id="L1226">                log.topicPartition(),</span>
+<span class="fc" id="L1227">                responsePartitionSnapshot -&gt; addQuorumLeader(responsePartitionSnapshot)</span>
+<span class="fc" id="L1228">                    .setErrorCode(leaderValidation.get().code())</span>
+            );
+        }
+
+<span class="fc" id="L1232">        OffsetAndEpoch snapshotId = new OffsetAndEpoch(</span>
+<span class="fc" id="L1233">            partitionSnapshot.snapshotId().endOffset(),</span>
+<span class="fc" id="L1234">            partitionSnapshot.snapshotId().epoch()</span>
+        );
+<span class="fc" id="L1236">        Optional&lt;RawSnapshotReader&gt; snapshotOpt = log.readSnapshot(snapshotId);</span>
+<span class="fc bfc" id="L1237" title="All 2 branches covered.">        if (!snapshotOpt.isPresent()) {</span>
+<span class="fc" id="L1238">            return FetchSnapshotResponse.singleton(</span>
+<span class="fc" id="L1239">                log.topicPartition(),</span>
+<span class="fc" id="L1240">                responsePartitionSnapshot -&gt; addQuorumLeader(responsePartitionSnapshot)</span>
+<span class="fc" id="L1241">                    .setErrorCode(Errors.SNAPSHOT_NOT_FOUND.code())</span>
+            );
+        }
+
+<span class="fc" id="L1245">        RawSnapshotReader snapshot = snapshotOpt.get();</span>
+<span class="fc" id="L1246">        long snapshotSize = snapshot.sizeInBytes();</span>
+<span class="fc bfc" id="L1247" title="All 4 branches covered.">        if (partitionSnapshot.position() &lt; 0 || partitionSnapshot.position() &gt;= snapshotSize) {</span>
+<span class="fc" id="L1248">            return FetchSnapshotResponse.singleton(</span>
+<span class="fc" id="L1249">                log.topicPartition(),</span>
+<span class="fc" id="L1250">                responsePartitionSnapshot -&gt; addQuorumLeader(responsePartitionSnapshot)</span>
+<span class="fc" id="L1251">                    .setErrorCode(Errors.POSITION_OUT_OF_RANGE.code())</span>
+            );
+        }
+
+<span class="pc bpc" id="L1255" title="1 of 2 branches missed.">        if (partitionSnapshot.position() &gt; Integer.MAX_VALUE) {</span>
+<span class="nc" id="L1256">            throw new IllegalStateException(</span>
+<span class="nc" id="L1257">                String.format(</span>
+                    &quot;Trying to fetch a snapshot with size (%s) and a position (%s) larger than %s&quot;,
+<span class="nc" id="L1259">                    snapshotSize,</span>
+<span class="nc" id="L1260">                    partitionSnapshot.position(),</span>
+<span class="nc" id="L1261">                    Integer.MAX_VALUE</span>
+                )
+            );
+        }
+
+        int maxSnapshotSize;
+        try {
+<span class="fc" id="L1268">            maxSnapshotSize = Math.toIntExact(snapshotSize);</span>
+<span class="nc" id="L1269">        } catch (ArithmeticException e) {</span>
+<span class="nc" id="L1270">            maxSnapshotSize = Integer.MAX_VALUE;</span>
+<span class="fc" id="L1271">        }</span>
+
+<span class="fc" id="L1273">        UnalignedRecords records = snapshot.slice(partitionSnapshot.position(), Math.min(data.maxBytes(), maxSnapshotSize));</span>
+
+<span class="fc" id="L1275">        return FetchSnapshotResponse.singleton(</span>
+<span class="fc" id="L1276">            log.topicPartition(),</span>
+            responsePartitionSnapshot -&gt; {
+<span class="fc" id="L1278">                addQuorumLeader(responsePartitionSnapshot)</span>
+<span class="fc" id="L1279">                    .snapshotId()</span>
+<span class="fc" id="L1280">                    .setEndOffset(snapshotId.offset)</span>
+<span class="fc" id="L1281">                    .setEpoch(snapshotId.epoch);</span>
+
+<span class="fc" id="L1283">                return responsePartitionSnapshot</span>
+<span class="fc" id="L1284">                    .setSize(snapshotSize)</span>
+<span class="fc" id="L1285">                    .setPosition(partitionSnapshot.position())</span>
+<span class="fc" id="L1286">                    .setUnalignedRecords(records);</span>
+            }
+        );
+    }
+
+    private boolean handleFetchSnapshotResponse(
+        RaftResponse.Inbound responseMetadata,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L1295">        FetchSnapshotResponseData data = (FetchSnapshotResponseData) responseMetadata.data;</span>
+<span class="fc" id="L1296">        Errors topLevelError = Errors.forCode(data.errorCode());</span>
+<span class="pc bpc" id="L1297" title="1 of 2 branches missed.">        if (topLevelError != Errors.NONE) {</span>
+<span class="nc" id="L1298">            return handleTopLevelError(topLevelError, responseMetadata);</span>
+        }
+
+<span class="pc bpc" id="L1301" title="3 of 4 branches missed.">        if (data.topics().size() != 1 &amp;&amp; data.topics().get(0).partitions().size() != 1) {</span>
+<span class="nc" id="L1302">            return false;</span>
+        }
+
+<span class="fc" id="L1305">        Optional&lt;FetchSnapshotResponseData.PartitionSnapshot&gt; partitionSnapshotOpt = FetchSnapshotResponse</span>
+<span class="fc" id="L1306">            .forTopicPartition(data, log.topicPartition());</span>
+<span class="pc bpc" id="L1307" title="1 of 2 branches missed.">        if (!partitionSnapshotOpt.isPresent()) {</span>
+<span class="nc" id="L1308">            return false;</span>
+        }
+
+<span class="fc" id="L1311">        FetchSnapshotResponseData.PartitionSnapshot partitionSnapshot = partitionSnapshotOpt.get();</span>
+
+<span class="fc" id="L1313">        FetchSnapshotResponseData.LeaderIdAndEpoch currentLeaderIdAndEpoch = partitionSnapshot.currentLeader();</span>
+<span class="fc" id="L1314">        OptionalInt responseLeaderId = optionalLeaderId(currentLeaderIdAndEpoch.leaderId());</span>
+<span class="fc" id="L1315">        int responseEpoch = currentLeaderIdAndEpoch.leaderEpoch();</span>
+<span class="fc" id="L1316">        Errors error = Errors.forCode(partitionSnapshot.errorCode());</span>
+
+<span class="fc" id="L1318">        Optional&lt;Boolean&gt; handled = maybeHandleCommonResponse(</span>
+            error, responseLeaderId, responseEpoch, currentTimeMs);
+<span class="fc bfc" id="L1320" title="All 2 branches covered.">        if (handled.isPresent()) {</span>
+<span class="fc" id="L1321">            return handled.get();</span>
+        }
+
+<span class="fc" id="L1324">        FollowerState state = quorum.followerStateOrThrow();</span>
+
+<span class="fc bfc" id="L1326" title="All 2 branches covered.">        if (Errors.forCode(partitionSnapshot.errorCode()) == Errors.SNAPSHOT_NOT_FOUND ||</span>
+<span class="fc bfc" id="L1327" title="All 2 branches covered.">            partitionSnapshot.snapshotId().endOffset() &lt; 0 ||</span>
+<span class="fc bfc" id="L1328" title="All 2 branches covered.">            partitionSnapshot.snapshotId().epoch() &lt; 0) {</span>
+
+            /* The leader deleted the snapshot before the follower could download it. Start over by
+             * reseting the fetching snapshot state and sending another fetch request.
+             */
+<span class="fc" id="L1333">            logger.trace(</span>
+                &quot;Leader doesn't know about snapshot id {}, returned error {} and snapshot id {}&quot;,
+<span class="fc" id="L1335">                state.fetchingSnapshot(),</span>
+<span class="fc" id="L1336">                partitionSnapshot.errorCode(),</span>
+<span class="fc" id="L1337">                partitionSnapshot.snapshotId()</span>
+            );
+<span class="fc" id="L1339">            state.setFetchingSnapshot(Optional.empty());</span>
+<span class="fc" id="L1340">            state.resetFetchTimeout(currentTimeMs);</span>
+<span class="fc" id="L1341">            return true;</span>
+        }
+
+<span class="fc" id="L1344">        OffsetAndEpoch snapshotId = new OffsetAndEpoch(</span>
+<span class="fc" id="L1345">            partitionSnapshot.snapshotId().endOffset(),</span>
+<span class="fc" id="L1346">            partitionSnapshot.snapshotId().epoch()</span>
+        );
+
+        RawSnapshotWriter snapshot;
+<span class="pc bpc" id="L1350" title="1 of 2 branches missed.">        if (state.fetchingSnapshot().isPresent()) {</span>
+<span class="fc" id="L1351">            snapshot = state.fetchingSnapshot().get();</span>
+        } else {
+<span class="nc" id="L1353">            throw new IllegalStateException(</span>
+<span class="nc" id="L1354">                String.format(&quot;Received unexpected fetch snapshot response: %s&quot;, partitionSnapshot)</span>
+            );
+        }
+
+<span class="pc bpc" id="L1358" title="1 of 2 branches missed.">        if (!snapshot.snapshotId().equals(snapshotId)) {</span>
+<span class="nc" id="L1359">            throw new IllegalStateException(</span>
+<span class="nc" id="L1360">                String.format(</span>
+                    &quot;Received fetch snapshot response with an invalid id. Expected %s; Received %s&quot;,
+<span class="nc" id="L1362">                    snapshot.snapshotId(),</span>
+                    snapshotId
+                )
+            );
+        }
+<span class="pc bpc" id="L1367" title="1 of 2 branches missed.">        if (snapshot.sizeInBytes() != partitionSnapshot.position()) {</span>
+<span class="nc" id="L1368">            throw new IllegalStateException(</span>
+<span class="nc" id="L1369">                String.format(</span>
+                    &quot;Received fetch snapshot response with an invalid position. Expected %s; Received %s&quot;,
+<span class="nc" id="L1371">                    snapshot.sizeInBytes(),</span>
+<span class="nc" id="L1372">                    partitionSnapshot.position()</span>
+                )
+            );
+        }
+
+        final UnalignedMemoryRecords records;
+<span class="pc bpc" id="L1378" title="1 of 2 branches missed.">        if (partitionSnapshot.unalignedRecords() instanceof MemoryRecords) {</span>
+<span class="fc" id="L1379">            records = new UnalignedMemoryRecords(((MemoryRecords) partitionSnapshot.unalignedRecords()).buffer());</span>
+<span class="nc bnc" id="L1380" title="All 2 branches missed.">        } else if (partitionSnapshot.unalignedRecords() instanceof UnalignedMemoryRecords) {</span>
+<span class="nc" id="L1381">            records = (UnalignedMemoryRecords) partitionSnapshot.unalignedRecords();</span>
+        } else {
+<span class="nc" id="L1383">            throw new IllegalStateException(String.format(&quot;Received unexpected fetch snapshot response: %s&quot;, partitionSnapshot));</span>
+        }
+<span class="fc" id="L1385">        snapshot.append(records);</span>
+
+<span class="fc bfc" id="L1387" title="All 2 branches covered.">        if (snapshot.sizeInBytes() == partitionSnapshot.size()) {</span>
+            // Finished fetching the snapshot.
+<span class="fc" id="L1389">            snapshot.freeze();</span>
+<span class="fc" id="L1390">            state.setFetchingSnapshot(Optional.empty());</span>
+
+<span class="pc bpc" id="L1392" title="1 of 2 branches missed.">            if (log.truncateToLatestSnapshot()) {</span>
+<span class="fc" id="L1393">                updateFollowerHighWatermark(state, OptionalLong.of(log.highWatermark().offset));</span>
+            } else {
+<span class="nc" id="L1395">                throw new IllegalStateException(</span>
+<span class="nc" id="L1396">                    String.format(</span>
+                        &quot;Full log truncation expected but didn't happen. Snapshot of %s, log end offset %s, last fetched %s&quot;,
+<span class="nc" id="L1398">                        snapshot.snapshotId(),</span>
+<span class="nc" id="L1399">                        log.endOffset(),</span>
+<span class="nc" id="L1400">                        log.lastFetchedEpoch()</span>
+                    )
+                );
+            }
+        }
+
+<span class="fc" id="L1406">        state.resetFetchTimeout(currentTimeMs);</span>
+<span class="fc" id="L1407">        return true;</span>
+    }
+
+    List&lt;ReplicaState&gt; convertToReplicaStates(Map&lt;Integer, Long&gt; replicaEndOffsets) {
+<span class="fc" id="L1411">        return replicaEndOffsets.entrySet().stream()</span>
+<span class="fc" id="L1412">                   .map(entry -&gt; new ReplicaState()</span>
+<span class="fc" id="L1413">                                     .setReplicaId(entry.getKey())</span>
+<span class="fc" id="L1414">                                     .setLogEndOffset(entry.getValue()))</span>
+<span class="fc" id="L1415">                   .collect(Collectors.toList());</span>
+    }
+
+    private boolean hasConsistentLeader(int epoch, OptionalInt leaderId) {
+        // Only elected leaders are sent in the request/response header, so if we have an elected
+        // leaderId, it should be consistent with what is in the message.
+<span class="fc bfc" id="L1421" title="All 4 branches covered.">        if (leaderId.isPresent() &amp;&amp; leaderId.getAsInt() == quorum.localIdOrSentinel()) {</span>
+            // The response indicates that we should be the leader, so we verify that is the case
+<span class="fc" id="L1423">            return quorum.isLeader();</span>
+        } else {
+<span class="fc bfc" id="L1425" title="All 2 branches covered.">            return epoch != quorum.epoch()</span>
+<span class="fc bfc" id="L1426" title="All 2 branches covered.">                || !leaderId.isPresent()</span>
+<span class="fc bfc" id="L1427" title="All 2 branches covered.">                || !quorum.leaderId().isPresent()</span>
+<span class="pc bpc" id="L1428" title="1 of 2 branches missed.">                || leaderId.equals(quorum.leaderId());</span>
+        }
+    }
+
+    /**
+     * Handle response errors that are common across request types.
+     *
+     * @param error Error from the received response
+     * @param leaderId Optional leaderId from the response
+     * @param epoch Epoch received from the response
+     * @param currentTimeMs Current epoch time in milliseconds
+     * @return Optional value indicating whether the error was handled here and the outcome of
+     *    that handling. Specifically:
+     *
+     *    - Optional.empty means that the response was not handled here and the custom
+     *        API handler should be applied
+     *    - Optional.of(true) indicates that the response was successfully handled here and
+     *        the request does not need to be retried
+     *    - Optional.of(false) indicates that the response was handled here, but that the request
+     *        will need to be retried
+     */
+    private Optional&lt;Boolean&gt; maybeHandleCommonResponse(
+        Errors error,
+        OptionalInt leaderId,
+        int epoch,
+        long currentTimeMs
+    ) {
+<span class="pc bpc" id="L1455" title="1 of 4 branches missed.">        if (epoch &lt; quorum.epoch() || error == Errors.UNKNOWN_LEADER_EPOCH) {</span>
+            // We have a larger epoch, so the response is no longer relevant
+<span class="fc" id="L1457">            return Optional.of(true);</span>
+<span class="fc bfc" id="L1458" title="All 6 branches covered.">        } else if (epoch &gt; quorum.epoch()</span>
+            || error == Errors.FENCED_LEADER_EPOCH
+            || error == Errors.NOT_LEADER_OR_FOLLOWER) {
+
+            // The response indicates that the request had a stale epoch, but we need
+            // to validate the epoch from the response against our current state.
+<span class="fc" id="L1464">            maybeTransition(leaderId, epoch, currentTimeMs);</span>
+<span class="fc" id="L1465">            return Optional.of(true);</span>
+<span class="pc bpc" id="L1466" title="1 of 2 branches missed.">        } else if (epoch == quorum.epoch()</span>
+<span class="fc bfc" id="L1467" title="All 2 branches covered.">            &amp;&amp; leaderId.isPresent()</span>
+<span class="fc bfc" id="L1468" title="All 2 branches covered.">            &amp;&amp; !quorum.hasLeader()) {</span>
+
+            // Since we are transitioning to Follower, we will only forward the
+            // request to the handler if there is no error. Otherwise, we will let
+            // the request be retried immediately (if needed) after the transition.
+            // This handling allows an observer to discover the leader and append
+            // to the log in the same Fetch request.
+<span class="fc" id="L1475">            transitionToFollower(epoch, leaderId.getAsInt(), currentTimeMs);</span>
+<span class="pc bpc" id="L1476" title="1 of 2 branches missed.">            if (error == Errors.NONE) {</span>
+<span class="fc" id="L1477">                return Optional.empty();</span>
+            } else {
+<span class="nc" id="L1479">                return Optional.of(true);</span>
+            }
+<span class="fc bfc" id="L1481" title="All 2 branches covered.">        } else if (error == Errors.BROKER_NOT_AVAILABLE) {</span>
+<span class="fc" id="L1482">            return Optional.of(false);</span>
+<span class="pc bpc" id="L1483" title="1 of 2 branches missed.">        } else if (error == Errors.INCONSISTENT_GROUP_PROTOCOL) {</span>
+            // For now we treat this as a fatal error. Once we have support for quorum
+            // reassignment, this error could suggest that either we or the recipient of
+            // the request just has stale voter information, which means we can retry
+            // after backing off.
+<span class="nc" id="L1488">            throw new IllegalStateException(&quot;Received error indicating inconsistent voter sets&quot;);</span>
+<span class="pc bpc" id="L1489" title="1 of 2 branches missed.">        } else if (error == Errors.INVALID_REQUEST) {</span>
+<span class="nc" id="L1490">            throw new IllegalStateException(&quot;Received unexpected invalid request error&quot;);</span>
+        }
+
+<span class="fc" id="L1493">        return Optional.empty();</span>
+    }
+
+    private void maybeTransition(
+        OptionalInt leaderId,
+        int epoch,
+        long currentTimeMs
+    ) {
+<span class="pc bpc" id="L1501" title="1 of 2 branches missed.">        if (!hasConsistentLeader(epoch, leaderId)) {</span>
+<span class="nc" id="L1502">            throw new IllegalStateException(&quot;Received request or response with leader &quot; + leaderId +</span>
+                &quot; and epoch &quot; + epoch + &quot; which is inconsistent with current leader &quot; +
+<span class="nc" id="L1504">                quorum.leaderId() + &quot; and epoch &quot; + quorum.epoch());</span>
+<span class="fc bfc" id="L1505" title="All 2 branches covered.">        } else if (epoch &gt; quorum.epoch()) {</span>
+<span class="fc bfc" id="L1506" title="All 2 branches covered.">            if (leaderId.isPresent()) {</span>
+<span class="fc" id="L1507">                transitionToFollower(epoch, leaderId.getAsInt(), currentTimeMs);</span>
+            } else {
+<span class="fc" id="L1509">                transitionToUnattached(epoch);</span>
+            }
+<span class="fc bfc" id="L1511" title="All 4 branches covered.">        } else if (leaderId.isPresent() &amp;&amp; !quorum.hasLeader()) {</span>
+            // The request or response indicates the leader of the current epoch,
+            // which is currently unknown
+<span class="fc" id="L1514">            transitionToFollower(epoch, leaderId.getAsInt(), currentTimeMs);</span>
+        }
+<span class="fc" id="L1516">    }</span>
+
+    private boolean handleTopLevelError(Errors error, RaftResponse.Inbound response) {
+<span class="pc bpc" id="L1519" title="1 of 2 branches missed.">        if (error == Errors.BROKER_NOT_AVAILABLE) {</span>
+<span class="nc" id="L1520">            return false;</span>
+<span class="pc bpc" id="L1521" title="1 of 2 branches missed.">        } else if (error == Errors.CLUSTER_AUTHORIZATION_FAILED) {</span>
+<span class="fc" id="L1522">            throw new ClusterAuthorizationException(&quot;Received cluster authorization error in response &quot; + response);</span>
+        } else {
+<span class="nc" id="L1524">            return handleUnexpectedError(error, response);</span>
+        }
+    }
+
+    private boolean handleUnexpectedError(Errors error, RaftResponse.Inbound response) {
+<span class="nc" id="L1529">        logger.error(&quot;Unexpected error {} in {} response: {}&quot;,</span>
+<span class="nc" id="L1530">            error, ApiKeys.forId(response.data.apiKey()), response);</span>
+<span class="nc" id="L1531">        return false;</span>
+    }
+
+    private void handleResponse(RaftResponse.Inbound response, long currentTimeMs) {
+        // The response epoch matches the local epoch, so we can handle the response
+<span class="fc" id="L1536">        ApiKeys apiKey = ApiKeys.forId(response.data.apiKey());</span>
+        final boolean handledSuccessfully;
+
+<span class="pc bpc" id="L1539" title="1 of 6 branches missed.">        switch (apiKey) {</span>
+            case FETCH:
+<span class="fc" id="L1541">                handledSuccessfully = handleFetchResponse(response, currentTimeMs);</span>
+<span class="fc" id="L1542">                break;</span>
+
+            case VOTE:
+<span class="fc" id="L1545">                handledSuccessfully = handleVoteResponse(response, currentTimeMs);</span>
+<span class="fc" id="L1546">                break;</span>
+
+            case BEGIN_QUORUM_EPOCH:
+<span class="fc" id="L1549">                handledSuccessfully = handleBeginQuorumEpochResponse(response, currentTimeMs);</span>
+<span class="fc" id="L1550">                break;</span>
+
+            case END_QUORUM_EPOCH:
+<span class="fc" id="L1553">                handledSuccessfully = handleEndQuorumEpochResponse(response, currentTimeMs);</span>
+<span class="fc" id="L1554">                break;</span>
+
+            case FETCH_SNAPSHOT:
+<span class="fc" id="L1557">                handledSuccessfully = handleFetchSnapshotResponse(response, currentTimeMs);</span>
+<span class="fc" id="L1558">                break;</span>
+
+            default:
+<span class="nc" id="L1561">                throw new IllegalArgumentException(&quot;Received unexpected response type: &quot; + apiKey);</span>
+        }
+
+<span class="fc" id="L1564">        ConnectionState connection = requestManager.getOrCreate(response.sourceId());</span>
+<span class="fc bfc" id="L1565" title="All 2 branches covered.">        if (handledSuccessfully) {</span>
+<span class="fc" id="L1566">            connection.onResponseReceived(response.correlationId);</span>
+        } else {
+<span class="fc" id="L1568">            connection.onResponseError(response.correlationId, currentTimeMs);</span>
+        }
+<span class="fc" id="L1570">    }</span>
+
+    /**
+     * Validate a request which is only valid between voters. If an error is
+     * present in the returned value, it should be returned in the response.
+     */
+    private Optional&lt;Errors&gt; validateVoterOnlyRequest(int remoteNodeId, int requestEpoch) {
+<span class="fc bfc" id="L1577" title="All 2 branches covered.">        if (requestEpoch &lt; quorum.epoch()) {</span>
+<span class="fc" id="L1578">            return Optional.of(Errors.FENCED_LEADER_EPOCH);</span>
+<span class="pc bpc" id="L1579" title="1 of 2 branches missed.">        } else if (remoteNodeId &lt; 0) {</span>
+<span class="nc" id="L1580">            return Optional.of(Errors.INVALID_REQUEST);</span>
+<span class="fc bfc" id="L1581" title="All 4 branches covered.">        } else if (quorum.isObserver() || !quorum.isVoter(remoteNodeId)) {</span>
+<span class="fc" id="L1582">            return Optional.of(Errors.INCONSISTENT_VOTER_SET);</span>
+        } else {
+<span class="fc" id="L1584">            return Optional.empty();</span>
+        }
+    }
+
+    /**
+     * Validate a request which is intended for the current quorum leader.
+     * If an error is present in the returned value, it should be returned
+     * in the response.
+     */
+    private Optional&lt;Errors&gt; validateLeaderOnlyRequest(int requestEpoch) {
+<span class="fc bfc" id="L1594" title="All 2 branches covered.">        if (requestEpoch &lt; quorum.epoch()) {</span>
+<span class="fc" id="L1595">            return Optional.of(Errors.FENCED_LEADER_EPOCH);</span>
+<span class="fc bfc" id="L1596" title="All 2 branches covered.">        } else if (requestEpoch &gt; quorum.epoch()) {</span>
+<span class="fc" id="L1597">            return Optional.of(Errors.UNKNOWN_LEADER_EPOCH);</span>
+<span class="fc bfc" id="L1598" title="All 2 branches covered.">        } else if (!quorum.isLeader()) {</span>
+            // In general, non-leaders do not expect to receive requests
+            // matching their own epoch, but it is possible when observers
+            // are using the Fetch API to find the result of an election.
+<span class="fc" id="L1602">            return Optional.of(Errors.NOT_LEADER_OR_FOLLOWER);</span>
+<span class="pc bpc" id="L1603" title="1 of 2 branches missed.">        } else if (shutdown.get() != null) {</span>
+<span class="nc" id="L1604">            return Optional.of(Errors.BROKER_NOT_AVAILABLE);</span>
+        } else {
+<span class="fc" id="L1606">            return Optional.empty();</span>
+        }
+    }
+
+    private void handleRequest(RaftRequest.Inbound request, long currentTimeMs) {
+<span class="fc" id="L1611">        ApiKeys apiKey = ApiKeys.forId(request.data.apiKey());</span>
+        final CompletableFuture&lt;? extends ApiMessage&gt; responseFuture;
+
+<span class="pc bpc" id="L1614" title="1 of 7 branches missed.">        switch (apiKey) {</span>
+            case FETCH:
+<span class="fc" id="L1616">                responseFuture = handleFetchRequest(request, currentTimeMs);</span>
+<span class="fc" id="L1617">                break;</span>
+
+            case VOTE:
+<span class="fc" id="L1620">                responseFuture = completedFuture(handleVoteRequest(request));</span>
+<span class="fc" id="L1621">                break;</span>
+
+            case BEGIN_QUORUM_EPOCH:
+<span class="fc" id="L1624">                responseFuture = completedFuture(handleBeginQuorumEpochRequest(request, currentTimeMs));</span>
+<span class="fc" id="L1625">                break;</span>
+
+            case END_QUORUM_EPOCH:
+<span class="fc" id="L1628">                responseFuture = completedFuture(handleEndQuorumEpochRequest(request, currentTimeMs));</span>
+<span class="fc" id="L1629">                break;</span>
+
+            case DESCRIBE_QUORUM:
+<span class="fc" id="L1632">                responseFuture = completedFuture(handleDescribeQuorumRequest(request, currentTimeMs));</span>
+<span class="fc" id="L1633">                break;</span>
+
+            case FETCH_SNAPSHOT:
+<span class="fc" id="L1636">                responseFuture = completedFuture(handleFetchSnapshotRequest(request));</span>
+<span class="fc" id="L1637">                break;</span>
+
+            default:
+<span class="nc" id="L1640">                throw new IllegalArgumentException(&quot;Unexpected request type &quot; + apiKey);</span>
+        }
+
+<span class="fc" id="L1643">        responseFuture.whenComplete((response, exception) -&gt; {</span>
+            final ApiMessage message;
+<span class="pc bpc" id="L1645" title="1 of 2 branches missed.">            if (response != null) {</span>
+<span class="fc" id="L1646">                message = response;</span>
+            } else {
+<span class="nc" id="L1648">                message = RaftUtil.errorResponse(apiKey, Errors.forException(exception));</span>
+            }
+
+<span class="fc" id="L1651">            RaftResponse.Outbound responseMessage = new RaftResponse.Outbound(request.correlationId(), message);</span>
+<span class="fc" id="L1652">            request.completion.complete(responseMessage);</span>
+<span class="fc" id="L1653">            logger.trace(&quot;Sent response {} to inbound request {}&quot;, responseMessage, request);</span>
+<span class="fc" id="L1654">        });</span>
+<span class="fc" id="L1655">    }</span>
+
+    private void handleInboundMessage(RaftMessage message, long currentTimeMs) {
+<span class="fc" id="L1658">        logger.trace(&quot;Received inbound message {}&quot;, message);</span>
+
+<span class="fc bfc" id="L1660" title="All 2 branches covered.">        if (message instanceof RaftRequest.Inbound) {</span>
+<span class="fc" id="L1661">            RaftRequest.Inbound request = (RaftRequest.Inbound) message;</span>
+<span class="fc" id="L1662">            handleRequest(request, currentTimeMs);</span>
+<span class="pc bpc" id="L1663" title="1 of 2 branches missed.">        } else if (message instanceof RaftResponse.Inbound) {</span>
+<span class="fc" id="L1664">            RaftResponse.Inbound response = (RaftResponse.Inbound) message;</span>
+<span class="fc" id="L1665">            ConnectionState connection = requestManager.getOrCreate(response.sourceId());</span>
+<span class="fc bfc" id="L1666" title="All 2 branches covered.">            if (connection.isResponseExpected(response.correlationId)) {</span>
+<span class="fc" id="L1667">                handleResponse(response, currentTimeMs);</span>
+            } else {
+<span class="fc" id="L1669">                logger.debug(&quot;Ignoring response {} since it is no longer needed&quot;, response);</span>
+            }
+<span class="fc" id="L1671">        } else {</span>
+<span class="nc" id="L1672">            throw new IllegalArgumentException(&quot;Unexpected message &quot; + message);</span>
+        }
+<span class="fc" id="L1674">    }</span>
+
+    /**
+     * Attempt to send a request. Return the time to wait before the request can be retried.
+     */
+    private long maybeSendRequest(
+        long currentTimeMs,
+        int destinationId,
+        Supplier&lt;ApiMessage&gt; requestSupplier
+    )  {
+<span class="fc" id="L1684">        ConnectionState connection = requestManager.getOrCreate(destinationId);</span>
+
+<span class="pc bpc" id="L1686" title="1 of 2 branches missed.">        if (connection.isBackingOff(currentTimeMs)) {</span>
+<span class="nc" id="L1687">            long remainingBackoffMs = connection.remainingBackoffMs(currentTimeMs);</span>
+<span class="nc" id="L1688">            logger.debug(&quot;Connection for {} is backing off for {} ms&quot;, destinationId, remainingBackoffMs);</span>
+<span class="nc" id="L1689">            return remainingBackoffMs;</span>
+        }
+
+<span class="fc bfc" id="L1692" title="All 2 branches covered.">        if (connection.isReady(currentTimeMs)) {</span>
+<span class="fc" id="L1693">            int correlationId = channel.newCorrelationId();</span>
+<span class="fc" id="L1694">            ApiMessage request = requestSupplier.get();</span>
+
+<span class="fc" id="L1696">            RaftRequest.Outbound requestMessage = new RaftRequest.Outbound(</span>
+                correlationId,
+                request,
+                destinationId,
+                currentTimeMs
+            );
+
+<span class="fc" id="L1703">            requestMessage.completion.whenComplete((response, exception) -&gt; {</span>
+<span class="pc bpc" id="L1704" title="1 of 2 branches missed.">                if (exception != null) {</span>
+<span class="nc" id="L1705">                    ApiKeys api = ApiKeys.forId(request.apiKey());</span>
+<span class="nc" id="L1706">                    Errors error = Errors.forException(exception);</span>
+<span class="nc" id="L1707">                    ApiMessage errorResponse = RaftUtil.errorResponse(api, error);</span>
+
+<span class="nc" id="L1709">                    response = new RaftResponse.Inbound(</span>
+                        correlationId,
+                        errorResponse,
+                        destinationId
+                    );
+                }
+
+<span class="fc" id="L1716">                messageQueue.add(response);</span>
+<span class="fc" id="L1717">            });</span>
+
+<span class="fc" id="L1719">            channel.send(requestMessage);</span>
+<span class="fc" id="L1720">            logger.trace(&quot;Sent outbound request: {}&quot;, requestMessage);</span>
+<span class="fc" id="L1721">            connection.onRequestSent(correlationId, currentTimeMs);</span>
+<span class="fc" id="L1722">            return Long.MAX_VALUE;</span>
+        }
+
+<span class="fc" id="L1725">        return connection.remainingRequestTimeMs(currentTimeMs);</span>
+    }
+
+    private EndQuorumEpochRequestData buildEndQuorumEpochRequest(
+        ResignedState state
+    ) {
+<span class="fc" id="L1731">        return EndQuorumEpochRequest.singletonRequest(</span>
+<span class="fc" id="L1732">            log.topicPartition(),</span>
+            clusterId,
+<span class="fc" id="L1734">            quorum.epoch(),</span>
+<span class="fc" id="L1735">            quorum.localIdOrThrow(),</span>
+<span class="fc" id="L1736">            state.preferredSuccessors()</span>
+        );
+    }
+
+    private long maybeSendRequests(
+        long currentTimeMs,
+        Set&lt;Integer&gt; destinationIds,
+        Supplier&lt;ApiMessage&gt; requestSupplier
+    ) {
+<span class="fc" id="L1745">        long minBackoffMs = Long.MAX_VALUE;</span>
+<span class="fc bfc" id="L1746" title="All 2 branches covered.">        for (Integer destinationId : destinationIds) {</span>
+<span class="fc" id="L1747">            long backoffMs = maybeSendRequest(currentTimeMs, destinationId, requestSupplier);</span>
+<span class="fc bfc" id="L1748" title="All 2 branches covered.">            if (backoffMs &lt; minBackoffMs) {</span>
+<span class="fc" id="L1749">                minBackoffMs = backoffMs;</span>
+            }
+<span class="fc" id="L1751">        }</span>
+<span class="fc" id="L1752">        return minBackoffMs;</span>
+    }
+
+    private BeginQuorumEpochRequestData buildBeginQuorumEpochRequest() {
+<span class="fc" id="L1756">        return BeginQuorumEpochRequest.singletonRequest(</span>
+<span class="fc" id="L1757">            log.topicPartition(),</span>
+            clusterId,
+<span class="fc" id="L1759">            quorum.epoch(),</span>
+<span class="fc" id="L1760">            quorum.localIdOrThrow()</span>
+        );
+    }
+
+    private VoteRequestData buildVoteRequest() {
+<span class="fc" id="L1765">        OffsetAndEpoch endOffset = endOffset();</span>
+<span class="fc" id="L1766">        return VoteRequest.singletonRequest(</span>
+<span class="fc" id="L1767">            log.topicPartition(),</span>
+            clusterId,
+<span class="fc" id="L1769">            quorum.epoch(),</span>
+<span class="fc" id="L1770">            quorum.localIdOrThrow(),</span>
+            endOffset.epoch,
+            endOffset.offset
+        );
+    }
+
+    private FetchRequestData buildFetchRequest() {
+<span class="fc" id="L1777">        FetchRequestData request = RaftUtil.singletonFetchRequest(log.topicPartition(), fetchPartition -&gt; {</span>
+<span class="fc" id="L1778">            fetchPartition</span>
+<span class="fc" id="L1779">                .setCurrentLeaderEpoch(quorum.epoch())</span>
+<span class="fc" id="L1780">                .setLastFetchedEpoch(log.lastFetchedEpoch())</span>
+<span class="fc" id="L1781">                .setFetchOffset(log.endOffset().offset);</span>
+<span class="fc" id="L1782">        });</span>
+<span class="fc" id="L1783">        return request</span>
+<span class="fc" id="L1784">            .setMaxBytes(MAX_FETCH_SIZE_BYTES)</span>
+<span class="fc" id="L1785">            .setMaxWaitMs(fetchMaxWaitMs)</span>
+<span class="fc" id="L1786">            .setClusterId(clusterId)</span>
+<span class="fc" id="L1787">            .setReplicaId(quorum.localIdOrSentinel());</span>
+    }
+
+    private long maybeSendAnyVoterFetch(long currentTimeMs) {
+<span class="fc" id="L1791">        OptionalInt readyVoterIdOpt = requestManager.findReadyVoter(currentTimeMs);</span>
+<span class="fc bfc" id="L1792" title="All 2 branches covered.">        if (readyVoterIdOpt.isPresent()) {</span>
+<span class="fc" id="L1793">            return maybeSendRequest(</span>
+                currentTimeMs,
+<span class="fc" id="L1795">                readyVoterIdOpt.getAsInt(),</span>
+                this::buildFetchRequest
+            );
+        } else {
+<span class="fc" id="L1799">            return requestManager.backoffBeforeAvailableVoter(currentTimeMs);</span>
+        }
+    }
+
+    private FetchSnapshotRequestData buildFetchSnapshotRequest(OffsetAndEpoch snapshotId, long snapshotSize) {
+<span class="fc" id="L1804">        FetchSnapshotRequestData.SnapshotId requestSnapshotId = new FetchSnapshotRequestData.SnapshotId()</span>
+<span class="fc" id="L1805">            .setEpoch(snapshotId.epoch)</span>
+<span class="fc" id="L1806">            .setEndOffset(snapshotId.offset);</span>
+
+<span class="fc" id="L1808">        FetchSnapshotRequestData request = FetchSnapshotRequest.singleton(</span>
+            clusterId,
+<span class="fc" id="L1810">            log.topicPartition(),</span>
+            snapshotPartition -&gt; {
+<span class="fc" id="L1812">                return snapshotPartition</span>
+<span class="fc" id="L1813">                    .setCurrentLeaderEpoch(quorum.epoch())</span>
+<span class="fc" id="L1814">                    .setSnapshotId(requestSnapshotId)</span>
+<span class="fc" id="L1815">                    .setPosition(snapshotSize);</span>
+            }
+        );
+
+<span class="fc" id="L1819">        return request.setReplicaId(quorum.localIdOrSentinel());</span>
+    }
+
+    private FetchSnapshotResponseData.PartitionSnapshot addQuorumLeader(
+        FetchSnapshotResponseData.PartitionSnapshot partitionSnapshot
+    ) {
+<span class="fc" id="L1825">        partitionSnapshot.currentLeader()</span>
+<span class="fc" id="L1826">            .setLeaderEpoch(quorum.epoch())</span>
+<span class="fc" id="L1827">            .setLeaderId(quorum.leaderIdOrSentinel());</span>
+
+<span class="fc" id="L1829">        return partitionSnapshot;</span>
+    }
+
+    public boolean isRunning() {
+<span class="fc" id="L1833">        GracefulShutdown gracefulShutdown = shutdown.get();</span>
+<span class="fc bfc" id="L1834" title="All 4 branches covered.">        return gracefulShutdown == null || !gracefulShutdown.isFinished();</span>
+    }
+
+    public boolean isShuttingDown() {
+<span class="fc" id="L1838">        GracefulShutdown gracefulShutdown = shutdown.get();</span>
+<span class="fc bfc" id="L1839" title="All 4 branches covered.">        return gracefulShutdown != null &amp;&amp; !gracefulShutdown.isFinished();</span>
+    }
+
+    private void appendBatch(
+        LeaderState&lt;T&gt; state,
+        BatchAccumulator.CompletedBatch&lt;T&gt; batch,
+        long appendTimeMs
+    ) {
+        try {
+<span class="fc" id="L1848">            int epoch = state.epoch();</span>
+<span class="fc" id="L1849">            LogAppendInfo info = appendAsLeader(batch.data);</span>
+<span class="fc" id="L1850">            OffsetAndEpoch offsetAndEpoch = new OffsetAndEpoch(info.lastOffset, epoch);</span>
+<span class="fc" id="L1851">            CompletableFuture&lt;Long&gt; future = appendPurgatory.await(</span>
+<span class="fc" id="L1852">                offsetAndEpoch.offset + 1, Integer.MAX_VALUE);</span>
+
+<span class="fc" id="L1854">            future.whenComplete((commitTimeMs, exception) -&gt; {</span>
+<span class="fc bfc" id="L1855" title="All 2 branches covered.">                if (exception != null) {</span>
+<span class="fc" id="L1856">                    logger.debug(&quot;Failed to commit {} records at {}&quot;, batch.numRecords, offsetAndEpoch, exception);</span>
+                } else {
+<span class="fc" id="L1858">                    long elapsedTime = Math.max(0, commitTimeMs - appendTimeMs);</span>
+<span class="fc" id="L1859">                    double elapsedTimePerRecord = (double) elapsedTime / batch.numRecords;</span>
+<span class="fc" id="L1860">                    kafkaRaftMetrics.updateCommitLatency(elapsedTimePerRecord, appendTimeMs);</span>
+<span class="fc" id="L1861">                    logger.debug(&quot;Completed commit of {} records at {}&quot;, batch.numRecords, offsetAndEpoch);</span>
+<span class="fc" id="L1862">                    batch.records.ifPresent(records -&gt; {</span>
+<span class="fc" id="L1863">                        maybeFireHandleCommit(batch.baseOffset, epoch, batch.appendTimestamp(), batch.sizeInBytes(), records);</span>
+<span class="fc" id="L1864">                    });</span>
+                }
+<span class="fc" id="L1866">            });</span>
+        } finally {
+<span class="fc" id="L1868">            batch.release();</span>
+        }
+<span class="fc" id="L1870">    }</span>
+
+    private long maybeAppendBatches(
+        LeaderState&lt;T&gt; state,
+        long currentTimeMs
+    ) {
+<span class="fc" id="L1876">        long timeUntilDrain = state.accumulator().timeUntilDrain(currentTimeMs);</span>
+<span class="fc bfc" id="L1877" title="All 2 branches covered.">        if (timeUntilDrain &lt;= 0) {</span>
+<span class="fc" id="L1878">            List&lt;BatchAccumulator.CompletedBatch&lt;T&gt;&gt; batches = state.accumulator().drain();</span>
+<span class="fc" id="L1879">            Iterator&lt;BatchAccumulator.CompletedBatch&lt;T&gt;&gt; iterator = batches.iterator();</span>
+
+            try {
+<span class="fc bfc" id="L1882" title="All 2 branches covered.">                while (iterator.hasNext()) {</span>
+<span class="fc" id="L1883">                    BatchAccumulator.CompletedBatch&lt;T&gt; batch = iterator.next();</span>
+<span class="fc" id="L1884">                    appendBatch(state, batch, currentTimeMs);</span>
+<span class="fc" id="L1885">                }</span>
+<span class="fc" id="L1886">                flushLeaderLog(state, currentTimeMs);</span>
+            } finally {
+                // Release and discard any batches which failed to be appended
+<span class="pc bpc" id="L1889" title="1 of 2 branches missed.">                while (iterator.hasNext()) {</span>
+<span class="nc" id="L1890">                    iterator.next().release();</span>
+                }
+            }
+        }
+<span class="fc" id="L1894">        return timeUntilDrain;</span>
+    }
+
+    private long pollResigned(long currentTimeMs) {
+<span class="fc" id="L1898">        ResignedState state = quorum.resignedStateOrThrow();</span>
+<span class="fc" id="L1899">        long endQuorumBackoffMs = maybeSendRequests(</span>
+            currentTimeMs,
+<span class="fc" id="L1901">            state.unackedVoters(),</span>
+<span class="fc" id="L1902">            () -&gt; buildEndQuorumEpochRequest(state)</span>
+        );
+
+<span class="fc" id="L1905">        GracefulShutdown shutdown = this.shutdown.get();</span>
+        final long stateTimeoutMs;
+<span class="fc bfc" id="L1907" title="All 2 branches covered.">        if (shutdown != null) {</span>
+            // If we are shutting down, then we will remain in the resigned state
+            // until either the shutdown expires or an election bumps the epoch
+<span class="fc" id="L1910">            stateTimeoutMs = shutdown.remainingTimeMs();</span>
+<span class="fc bfc" id="L1911" title="All 2 branches covered.">        } else if (state.hasElectionTimeoutExpired(currentTimeMs)) {</span>
+<span class="fc" id="L1912">            transitionToCandidate(currentTimeMs);</span>
+<span class="fc" id="L1913">            stateTimeoutMs = 0L;</span>
+        } else {
+<span class="fc" id="L1915">            stateTimeoutMs = state.remainingElectionTimeMs(currentTimeMs);</span>
+        }
+
+<span class="fc" id="L1918">        return Math.min(stateTimeoutMs, endQuorumBackoffMs);</span>
+    }
+
+    private long pollLeader(long currentTimeMs) {
+<span class="fc" id="L1922">        LeaderState&lt;T&gt; state = quorum.leaderStateOrThrow();</span>
+<span class="fc" id="L1923">        maybeFireLeaderChange(state);</span>
+
+<span class="fc bfc" id="L1925" title="All 4 branches covered.">        if (shutdown.get() != null || state.isResignRequested()) {</span>
+<span class="fc" id="L1926">            transitionToResigned(state.nonLeaderVotersByDescendingFetchOffset());</span>
+<span class="fc" id="L1927">            return 0L;</span>
+        }
+
+<span class="fc" id="L1930">        long timeUntilFlush = maybeAppendBatches(</span>
+            state,
+            currentTimeMs
+        );
+
+<span class="fc" id="L1935">        long timeUntilSend = maybeSendRequests(</span>
+            currentTimeMs,
+<span class="fc" id="L1937">            state.nonAcknowledgingVoters(),</span>
+            this::buildBeginQuorumEpochRequest
+        );
+
+<span class="fc" id="L1941">        return Math.min(timeUntilFlush, timeUntilSend);</span>
+    }
+
+    private long maybeSendVoteRequests(
+        CandidateState state,
+        long currentTimeMs
+    ) {
+        // Continue sending Vote requests as long as we still have a chance to win the election
+<span class="pc bpc" id="L1949" title="1 of 2 branches missed.">        if (!state.isVoteRejected()) {</span>
+<span class="fc" id="L1950">            return maybeSendRequests(</span>
+                currentTimeMs,
+<span class="fc" id="L1952">                state.unrecordedVoters(),</span>
+                this::buildVoteRequest
+            );
+        }
+<span class="nc" id="L1956">        return Long.MAX_VALUE;</span>
+    }
+
+    private long pollCandidate(long currentTimeMs) {
+<span class="fc" id="L1960">        CandidateState state = quorum.candidateStateOrThrow();</span>
+<span class="fc" id="L1961">        GracefulShutdown shutdown = this.shutdown.get();</span>
+
+<span class="pc bpc" id="L1963" title="1 of 2 branches missed.">        if (shutdown != null) {</span>
+            // If we happen to shutdown while we are a candidate, we will continue
+            // with the current election until one of the following conditions is met:
+            //  1) we are elected as leader (which allows us to resign)
+            //  2) another leader is elected
+            //  3) the shutdown timer expires
+<span class="nc" id="L1969">            long minRequestBackoffMs = maybeSendVoteRequests(state, currentTimeMs);</span>
+<span class="nc" id="L1970">            return Math.min(shutdown.remainingTimeMs(), minRequestBackoffMs);</span>
+<span class="fc bfc" id="L1971" title="All 2 branches covered.">        } else if (state.isBackingOff()) {</span>
+<span class="fc bfc" id="L1972" title="All 2 branches covered.">            if (state.isBackoffComplete(currentTimeMs)) {</span>
+<span class="fc" id="L1973">                logger.info(&quot;Re-elect as candidate after election backoff has completed&quot;);</span>
+<span class="fc" id="L1974">                transitionToCandidate(currentTimeMs);</span>
+<span class="fc" id="L1975">                return 0L;</span>
+            }
+<span class="fc" id="L1977">            return state.remainingBackoffMs(currentTimeMs);</span>
+<span class="fc bfc" id="L1978" title="All 2 branches covered.">        } else if (state.hasElectionTimeoutExpired(currentTimeMs)) {</span>
+<span class="fc" id="L1979">            long backoffDurationMs = binaryExponentialElectionBackoffMs(state.retries());</span>
+<span class="fc" id="L1980">            logger.debug(&quot;Election has timed out, backing off for {}ms before becoming a candidate again&quot;,</span>
+<span class="fc" id="L1981">                backoffDurationMs);</span>
+<span class="fc" id="L1982">            state.startBackingOff(currentTimeMs, backoffDurationMs);</span>
+<span class="fc" id="L1983">            return backoffDurationMs;</span>
+        } else {
+<span class="fc" id="L1985">            long minRequestBackoffMs = maybeSendVoteRequests(state, currentTimeMs);</span>
+<span class="fc" id="L1986">            return Math.min(minRequestBackoffMs, state.remainingElectionTimeMs(currentTimeMs));</span>
+        }
+    }
+
+    private long pollFollower(long currentTimeMs) {
+<span class="fc" id="L1991">        FollowerState state = quorum.followerStateOrThrow();</span>
+<span class="fc bfc" id="L1992" title="All 2 branches covered.">        if (quorum.isVoter()) {</span>
+<span class="fc" id="L1993">            return pollFollowerAsVoter(state, currentTimeMs);</span>
+        } else {
+<span class="fc" id="L1995">            return pollFollowerAsObserver(state, currentTimeMs);</span>
+        }
+    }
+
+    private long pollFollowerAsVoter(FollowerState state, long currentTimeMs) {
+<span class="fc" id="L2000">        GracefulShutdown shutdown = this.shutdown.get();</span>
+<span class="pc bpc" id="L2001" title="1 of 2 branches missed.">        if (shutdown != null) {</span>
+            // If we are a follower, then we can shutdown immediately. We want to
+            // skip the transition to candidate in any case.
+<span class="nc" id="L2004">            return 0;</span>
+<span class="fc bfc" id="L2005" title="All 2 branches covered.">        } else if (state.hasFetchTimeoutExpired(currentTimeMs)) {</span>
+<span class="fc" id="L2006">            logger.info(&quot;Become candidate due to fetch timeout&quot;);</span>
+<span class="fc" id="L2007">            transitionToCandidate(currentTimeMs);</span>
+<span class="fc" id="L2008">            return 0L;</span>
+        } else {
+<span class="fc" id="L2010">            long backoffMs = maybeSendFetchOrFetchSnapshot(state, currentTimeMs);</span>
+
+<span class="fc" id="L2012">            return Math.min(backoffMs, state.remainingFetchTimeMs(currentTimeMs));</span>
+        }
+    }
+
+    private long pollFollowerAsObserver(FollowerState state, long currentTimeMs) {
+<span class="fc bfc" id="L2017" title="All 2 branches covered.">        if (state.hasFetchTimeoutExpired(currentTimeMs)) {</span>
+<span class="fc" id="L2018">            return maybeSendAnyVoterFetch(currentTimeMs);</span>
+        } else {
+            final long backoffMs;
+
+            // If the current leader is backing off due to some failure or if the
+            // request has timed out, then we attempt to send the Fetch to another
+            // voter in order to discover if there has been a leader change.
+<span class="fc" id="L2025">            ConnectionState connection = requestManager.getOrCreate(state.leaderId());</span>
+<span class="fc bfc" id="L2026" title="All 2 branches covered.">            if (connection.hasRequestTimedOut(currentTimeMs)) {</span>
+<span class="fc" id="L2027">                backoffMs = maybeSendAnyVoterFetch(currentTimeMs);</span>
+<span class="fc" id="L2028">                connection.reset();</span>
+<span class="fc bfc" id="L2029" title="All 2 branches covered.">            } else if (connection.isBackingOff(currentTimeMs)) {</span>
+<span class="fc" id="L2030">                backoffMs = maybeSendAnyVoterFetch(currentTimeMs);</span>
+            } else {
+<span class="fc" id="L2032">                backoffMs = maybeSendFetchOrFetchSnapshot(state, currentTimeMs);</span>
+            }
+
+<span class="fc" id="L2035">            return Math.min(backoffMs, state.remainingFetchTimeMs(currentTimeMs));</span>
+        }
+    }
+
+    private long maybeSendFetchOrFetchSnapshot(FollowerState state, long currentTimeMs) {
+        final Supplier&lt;ApiMessage&gt; requestSupplier;
+
+<span class="fc bfc" id="L2042" title="All 2 branches covered.">        if (state.fetchingSnapshot().isPresent()) {</span>
+<span class="fc" id="L2043">            RawSnapshotWriter snapshot = state.fetchingSnapshot().get();</span>
+<span class="fc" id="L2044">            long snapshotSize = snapshot.sizeInBytes();</span>
+
+<span class="fc" id="L2046">            requestSupplier = () -&gt; buildFetchSnapshotRequest(snapshot.snapshotId(), snapshotSize);</span>
+<span class="fc" id="L2047">        } else {</span>
+<span class="fc" id="L2048">            requestSupplier = this::buildFetchRequest;</span>
+        }
+
+<span class="fc" id="L2051">        return maybeSendRequest(currentTimeMs, state.leaderId(), requestSupplier);</span>
+    }
+
+    private long pollVoted(long currentTimeMs) {
+<span class="fc" id="L2055">        VotedState state = quorum.votedStateOrThrow();</span>
+<span class="fc" id="L2056">        GracefulShutdown shutdown = this.shutdown.get();</span>
+
+<span class="fc bfc" id="L2058" title="All 2 branches covered.">        if (shutdown != null) {</span>
+            // If shutting down, then remain in this state until either the
+            // shutdown completes or an epoch bump forces another state transition
+<span class="fc" id="L2061">            return shutdown.remainingTimeMs();</span>
+<span class="fc bfc" id="L2062" title="All 2 branches covered.">        } else if (state.hasElectionTimeoutExpired(currentTimeMs)) {</span>
+<span class="fc" id="L2063">            transitionToCandidate(currentTimeMs);</span>
+<span class="fc" id="L2064">            return 0L;</span>
+        } else {
+<span class="fc" id="L2066">            return state.remainingElectionTimeMs(currentTimeMs);</span>
+        }
+    }
+
+    private long pollUnattached(long currentTimeMs) {
+<span class="fc" id="L2071">        UnattachedState state = quorum.unattachedStateOrThrow();</span>
+<span class="fc bfc" id="L2072" title="All 2 branches covered.">        if (quorum.isVoter()) {</span>
+<span class="fc" id="L2073">            return pollUnattachedAsVoter(state, currentTimeMs);</span>
+        } else {
+<span class="fc" id="L2075">            return pollUnattachedAsObserver(state, currentTimeMs);</span>
+        }
+    }
+
+    private long pollUnattachedAsVoter(UnattachedState state, long currentTimeMs) {
+<span class="fc" id="L2080">        GracefulShutdown shutdown = this.shutdown.get();</span>
+<span class="fc bfc" id="L2081" title="All 2 branches covered.">        if (shutdown != null) {</span>
+            // If shutting down, then remain in this state until either the
+            // shutdown completes or an epoch bump forces another state transition
+<span class="fc" id="L2084">            return shutdown.remainingTimeMs();</span>
+<span class="fc bfc" id="L2085" title="All 2 branches covered.">        } else if (state.hasElectionTimeoutExpired(currentTimeMs)) {</span>
+<span class="fc" id="L2086">            transitionToCandidate(currentTimeMs);</span>
+<span class="fc" id="L2087">            return 0L;</span>
+        } else {
+<span class="fc" id="L2089">            return state.remainingElectionTimeMs(currentTimeMs);</span>
+        }
+    }
+
+    private long pollUnattachedAsObserver(UnattachedState state, long currentTimeMs) {
+<span class="fc" id="L2094">        long fetchBackoffMs = maybeSendAnyVoterFetch(currentTimeMs);</span>
+<span class="fc" id="L2095">        return Math.min(fetchBackoffMs, state.remainingElectionTimeMs(currentTimeMs));</span>
+    }
+
+    private long pollCurrentState(long currentTimeMs) {
+<span class="fc bfc" id="L2099" title="All 2 branches covered.">        if (quorum.isLeader()) {</span>
+<span class="fc" id="L2100">            return pollLeader(currentTimeMs);</span>
+<span class="fc bfc" id="L2101" title="All 2 branches covered.">        } else if (quorum.isCandidate()) {</span>
+<span class="fc" id="L2102">            return pollCandidate(currentTimeMs);</span>
+<span class="fc bfc" id="L2103" title="All 2 branches covered.">        } else if (quorum.isFollower()) {</span>
+<span class="fc" id="L2104">            return pollFollower(currentTimeMs);</span>
+<span class="fc bfc" id="L2105" title="All 2 branches covered.">        } else if (quorum.isVoted()) {</span>
+<span class="fc" id="L2106">            return pollVoted(currentTimeMs);</span>
+<span class="fc bfc" id="L2107" title="All 2 branches covered.">        } else if (quorum.isUnattached()) {</span>
+<span class="fc" id="L2108">            return pollUnattached(currentTimeMs);</span>
+<span class="pc bpc" id="L2109" title="1 of 2 branches missed.">        } else if (quorum.isResigned()) {</span>
+<span class="fc" id="L2110">            return pollResigned(currentTimeMs);</span>
+        } else {
+<span class="nc" id="L2112">            throw new IllegalStateException(&quot;Unexpected quorum state &quot; + quorum);</span>
+        }
+    }
+
+    private void pollListeners() {
+        // Apply all of the pending registration
+        while (true) {
+<span class="fc" id="L2119">            Registration&lt;T&gt; registration = pendingRegistrations.poll();</span>
+<span class="fc bfc" id="L2120" title="All 2 branches covered.">            if (registration == null) {</span>
+<span class="fc" id="L2121">                break;</span>
+            }
+
+<span class="fc" id="L2124">            processRegistration(registration);</span>
+<span class="fc" id="L2125">        }</span>
+
+        // Check listener progress to see if reads are expected
+<span class="fc" id="L2128">        quorum.highWatermark().ifPresent(highWatermarkMetadata -&gt; {</span>
+<span class="fc" id="L2129">            updateListenersProgress(highWatermarkMetadata.offset);</span>
+<span class="fc" id="L2130">        });</span>
+<span class="fc" id="L2131">    }</span>
+
+    private void processRegistration(Registration&lt;T&gt; registration) {
+<span class="fc" id="L2134">        Listener&lt;T&gt; listener = registration.listener();</span>
+<span class="fc" id="L2135">        Registration.Ops ops = registration.ops();</span>
+
+<span class="fc bfc" id="L2137" title="All 2 branches covered.">        if (ops == Registration.Ops.REGISTER) {</span>
+<span class="pc bpc" id="L2138" title="1 of 2 branches missed.">            if (listenerContexts.putIfAbsent(listener, new ListenerContext(listener)) != null) {</span>
+<span class="nc" id="L2139">                logger.error(&quot;Attempting to add a listener that already exists: {}&quot;, listenerName(listener));</span>
+            } else {
+<span class="fc" id="L2141">                logger.info(&quot;Registered the listener {}&quot;, listenerName(listener));</span>
+            }
+        } else {
+<span class="pc bpc" id="L2144" title="1 of 2 branches missed.">            if (listenerContexts.remove(listener) == null) {</span>
+<span class="nc" id="L2145">                logger.error(&quot;Attempting to remove a listener that doesn't exists: {}&quot;, listenerName(listener));</span>
+            } else {
+<span class="fc" id="L2147">                logger.info(&quot;Unregistered the listener {}&quot;, listenerName(listener));</span>
+            }
+        }
+<span class="fc" id="L2150">    }</span>
+
+    private boolean maybeCompleteShutdown(long currentTimeMs) {
+<span class="fc" id="L2153">        GracefulShutdown shutdown = this.shutdown.get();</span>
+<span class="fc bfc" id="L2154" title="All 2 branches covered.">        if (shutdown == null) {</span>
+<span class="fc" id="L2155">            return false;</span>
+        }
+
+<span class="fc" id="L2158">        shutdown.update(currentTimeMs);</span>
+<span class="fc bfc" id="L2159" title="All 2 branches covered.">        if (shutdown.hasTimedOut()) {</span>
+<span class="fc" id="L2160">            shutdown.failWithTimeout();</span>
+<span class="fc" id="L2161">            return true;</span>
+        }
+
+<span class="fc bfc" id="L2164" title="All 2 branches covered.">        if (quorum.isObserver()</span>
+<span class="fc bfc" id="L2165" title="All 2 branches covered.">            || quorum.remoteVoters().isEmpty()</span>
+<span class="fc bfc" id="L2166" title="All 2 branches covered.">            || quorum.hasRemoteLeader()) {</span>
+
+<span class="fc" id="L2168">            shutdown.complete();</span>
+<span class="fc" id="L2169">            return true;</span>
+        }
+
+<span class="fc" id="L2172">        return false;</span>
+    }
+
+    /**
+     * A simple timer based log cleaner
+     */
+    private static class RaftMetadataLogCleanerManager {
+        private final Logger logger;
+        private final Timer timer;
+        private final long delayMs;
+        private final Runnable cleaner;
+
+<span class="fc" id="L2184">        RaftMetadataLogCleanerManager(Logger logger, Time time, long delayMs, Runnable cleaner) {</span>
+<span class="fc" id="L2185">            this.logger = logger;</span>
+<span class="fc" id="L2186">            this.timer = time.timer(delayMs);</span>
+<span class="fc" id="L2187">            this.delayMs = delayMs;</span>
+<span class="fc" id="L2188">            this.cleaner = cleaner;</span>
+<span class="fc" id="L2189">        }</span>
+
+        public long maybeClean(long currentTimeMs) {
+<span class="fc" id="L2192">            timer.update(currentTimeMs);</span>
+<span class="fc bfc" id="L2193" title="All 2 branches covered.">            if (timer.isExpired()) {</span>
+                try {
+<span class="fc" id="L2195">                    cleaner.run();</span>
+<span class="nc" id="L2196">                } catch (Throwable t) {</span>
+<span class="nc" id="L2197">                    logger.error(&quot;Had an error during log cleaning&quot;, t);</span>
+<span class="fc" id="L2198">                }</span>
+<span class="fc" id="L2199">                timer.reset(delayMs);</span>
+            }
+<span class="fc" id="L2201">            return timer.remainingMs();</span>
+        }
+    }
+
+    private void wakeup() {
+<span class="fc" id="L2206">        messageQueue.wakeup();</span>
+<span class="fc" id="L2207">    }</span>
+
+    /**
+     * Handle an inbound request. The response will be returned through
+     * {@link RaftRequest.Inbound#completion}.
+     *
+     * @param request The inbound request
+     */
+    public void handle(RaftRequest.Inbound request) {
+<span class="fc" id="L2216">        messageQueue.add(Objects.requireNonNull(request));</span>
+<span class="fc" id="L2217">    }</span>
+
+    /**
+     * Poll for new events. This allows the client to handle inbound
+     * requests and send any needed outbound requests.
+     */
+    public void poll() {
+<span class="fc" id="L2224">        pollListeners();</span>
+
+<span class="fc" id="L2226">        long currentTimeMs = time.milliseconds();</span>
+<span class="fc bfc" id="L2227" title="All 2 branches covered.">        if (maybeCompleteShutdown(currentTimeMs)) {</span>
+<span class="fc" id="L2228">            return;</span>
+        }
+
+<span class="fc" id="L2231">        long pollStateTimeoutMs = pollCurrentState(currentTimeMs);</span>
+<span class="fc" id="L2232">        long cleaningTimeoutMs = snapshotCleaner.maybeClean(currentTimeMs);</span>
+<span class="fc" id="L2233">        long pollTimeoutMs = Math.min(pollStateTimeoutMs, cleaningTimeoutMs);</span>
+
+<span class="fc" id="L2235">        kafkaRaftMetrics.updatePollStart(currentTimeMs);</span>
+
+<span class="fc" id="L2237">        RaftMessage message = messageQueue.poll(pollTimeoutMs);</span>
+
+<span class="fc" id="L2239">        currentTimeMs = time.milliseconds();</span>
+<span class="fc" id="L2240">        kafkaRaftMetrics.updatePollEnd(currentTimeMs);</span>
+
+<span class="fc bfc" id="L2242" title="All 2 branches covered.">        if (message != null) {</span>
+<span class="fc" id="L2243">            handleInboundMessage(message, currentTimeMs);</span>
+        }
+<span class="fc" id="L2245">    }</span>
+
+    @Override
+    public long scheduleAppend(int epoch, List&lt;T&gt; records) {
+<span class="fc" id="L2249">        return append(epoch, records, false);</span>
+    }
+
+    @Override
+    public long scheduleAtomicAppend(int epoch, List&lt;T&gt; records) {
+<span class="nc" id="L2254">        return append(epoch, records, true);</span>
+    }
+
+    private long append(int epoch, List&lt;T&gt; records, boolean isAtomic) {
+<span class="fc" id="L2258">        LeaderState&lt;T&gt; leaderState = quorum.&lt;T&gt;maybeLeaderState().orElseThrow(</span>
+<span class="fc" id="L2259">            () -&gt; new NotLeaderException(&quot;Append failed because the replication is not the current leader&quot;)</span>
+        );
+
+<span class="fc" id="L2262">        BatchAccumulator&lt;T&gt; accumulator = leaderState.accumulator();</span>
+<span class="fc" id="L2263">        boolean isFirstAppend = accumulator.isEmpty();</span>
+        final long offset;
+<span class="fc bfc" id="L2265" title="All 2 branches covered.">        if (isAtomic) {</span>
+<span class="nc" id="L2266">            offset = accumulator.appendAtomic(epoch, records);</span>
+        } else {
+<span class="fc" id="L2268">            offset = accumulator.append(epoch, records);</span>
+        }
+
+        // Wakeup the network channel if either this is the first append
+        // or the accumulator is ready to drain now. Checking for the first
+        // append ensures that we give the IO thread a chance to observe
+        // the linger timeout so that it can schedule its own wakeup in case
+        // there are no additional appends.
+<span class="pc bpc" id="L2276" title="1 of 4 branches missed.">        if (isFirstAppend || accumulator.needsDrain(time.milliseconds())) {</span>
+<span class="fc" id="L2277">            wakeup();</span>
+        }
+<span class="fc" id="L2279">        return offset;</span>
+    }
+
+    @Override
+    public CompletableFuture&lt;Void&gt; shutdown(int timeoutMs) {
+<span class="fc" id="L2284">        logger.info(&quot;Beginning graceful shutdown&quot;);</span>
+<span class="fc" id="L2285">        CompletableFuture&lt;Void&gt; shutdownComplete = new CompletableFuture&lt;&gt;();</span>
+<span class="fc" id="L2286">        shutdown.set(new GracefulShutdown(timeoutMs, shutdownComplete));</span>
+<span class="fc" id="L2287">        wakeup();</span>
+<span class="fc" id="L2288">        return shutdownComplete;</span>
+    }
+
+    @Override
+    public void resign(int epoch) {
+<span class="pc bpc" id="L2293" title="1 of 2 branches missed.">        if (epoch &lt; 0) {</span>
+<span class="nc" id="L2294">            throw new IllegalArgumentException(&quot;Attempt to resign from an invalid negative epoch &quot; + epoch);</span>
+        }
+
+<span class="fc bfc" id="L2297" title="All 2 branches covered.">        if (!quorum.isVoter()) {</span>
+<span class="fc" id="L2298">            throw new IllegalStateException(&quot;Attempt to resign by a non-voter&quot;);</span>
+        }
+
+<span class="fc" id="L2301">        LeaderAndEpoch leaderAndEpoch = leaderAndEpoch();</span>
+<span class="fc" id="L2302">        int currentEpoch = leaderAndEpoch.epoch();</span>
+
+<span class="fc bfc" id="L2304" title="All 2 branches covered.">        if (epoch &gt; currentEpoch) {</span>
+<span class="fc" id="L2305">            throw new IllegalArgumentException(&quot;Attempt to resign from epoch &quot; + epoch +</span>
+                &quot; which is larger than the current epoch &quot; + currentEpoch);
+<span class="fc bfc" id="L2307" title="All 2 branches covered.">        } else if (epoch &lt; currentEpoch) {</span>
+            // If the passed epoch is smaller than the current epoch, then it might mean
+            // that the listener has not been notified about a leader change that already
+            // took place. In this case, we consider the call as already fulfilled and
+            // take no further action.
+<span class="fc" id="L2312">            logger.debug(&quot;Ignoring call to resign from epoch {} since it is smaller than the &quot; +</span>
+<span class="fc" id="L2313">                &quot;current epoch {}&quot;, epoch, currentEpoch);</span>
+<span class="fc" id="L2314">            return;</span>
+<span class="fc bfc" id="L2315" title="All 2 branches covered.">        } else if (!leaderAndEpoch.isLeader(quorum.localIdOrThrow())) {</span>
+<span class="fc" id="L2316">            throw new IllegalArgumentException(&quot;Cannot resign from epoch &quot; + epoch +</span>
+                &quot; since we are not the leader&quot;);
+        } else {
+            // Note that if we transition to another state before we have a chance to
+            // request resignation, then we consider the call fulfilled.
+<span class="fc" id="L2321">            Optional&lt;LeaderState&lt;Object&gt;&gt; leaderStateOpt = quorum.maybeLeaderState();</span>
+<span class="pc bpc" id="L2322" title="1 of 2 branches missed.">            if (!leaderStateOpt.isPresent()) {</span>
+<span class="nc" id="L2323">                logger.debug(&quot;Ignoring call to resign from epoch {} since this node is &quot; +</span>
+<span class="nc" id="L2324">                    &quot;no longer the leader&quot;, epoch);</span>
+<span class="nc" id="L2325">                return;</span>
+            }
+
+<span class="fc" id="L2328">            LeaderState&lt;Object&gt; leaderState = leaderStateOpt.get();</span>
+<span class="pc bpc" id="L2329" title="1 of 2 branches missed.">            if (leaderState.epoch() != epoch) {</span>
+<span class="nc" id="L2330">                logger.debug(&quot;Ignoring call to resign from epoch {} since it is smaller than the &quot; +</span>
+<span class="nc" id="L2331">                    &quot;current epoch {}&quot;, epoch, leaderState.epoch());</span>
+            } else {
+<span class="fc" id="L2333">                logger.info(&quot;Received user request to resign from the current epoch {}&quot;, currentEpoch);</span>
+<span class="fc" id="L2334">                leaderState.requestResign();</span>
+<span class="fc" id="L2335">                wakeup();</span>
+            }
+        }
+<span class="fc" id="L2338">    }</span>
+
+    @Override
+    public Optional&lt;SnapshotWriter&lt;T&gt;&gt; createSnapshot(
+        long committedOffset,
+        int committedEpoch,
+        long lastContainedLogTime
+    ) {
+<span class="fc" id="L2346">        return SnapshotWriter.createWithHeader(</span>
+<span class="fc" id="L2347">                () -&gt; log.createNewSnapshot(new OffsetAndEpoch(committedOffset + 1, committedEpoch)),</span>
+                MAX_BATCH_SIZE_BYTES,
+                memoryPool,
+                time,
+                lastContainedLogTime,
+                CompressionType.NONE,
+                serde
+            );
+    }
+
+    @Override
+    public void close() {
+<span class="pc bpc" id="L2359" title="1 of 2 branches missed.">        if (kafkaRaftMetrics != null) {</span>
+<span class="fc" id="L2360">            kafkaRaftMetrics.close();</span>
+        }
+<span class="fc" id="L2362">    }</span>
+
+    QuorumState quorum() {
+<span class="fc" id="L2365">        return quorum;</span>
+    }
+
+    public OptionalLong highWatermark() {
+<span class="fc bfc" id="L2369" title="All 2 branches covered.">        if (quorum.highWatermark().isPresent()) {</span>
+<span class="fc" id="L2370">            return OptionalLong.of(quorum.highWatermark().get().offset);</span>
+        } else {
+<span class="fc" id="L2372">            return OptionalLong.empty();</span>
+        }
+    }
+
+    private class GracefulShutdown {
+        final Timer finishTimer;
+        final CompletableFuture&lt;Void&gt; completeFuture;
+
+        public GracefulShutdown(long shutdownTimeoutMs,
+<span class="fc" id="L2381">                                CompletableFuture&lt;Void&gt; completeFuture) {</span>
+<span class="fc" id="L2382">            this.finishTimer = time.timer(shutdownTimeoutMs);</span>
+<span class="fc" id="L2383">            this.completeFuture = completeFuture;</span>
+<span class="fc" id="L2384">        }</span>
+
+        public void update(long currentTimeMs) {
+<span class="fc" id="L2387">            finishTimer.update(currentTimeMs);</span>
+<span class="fc" id="L2388">        }</span>
+
+        public boolean hasTimedOut() {
+<span class="fc" id="L2391">            return finishTimer.isExpired();</span>
+        }
+
+        public boolean isFinished() {
+<span class="fc" id="L2395">            return completeFuture.isDone();</span>
+        }
+
+        public long remainingTimeMs() {
+<span class="fc" id="L2399">            return finishTimer.remainingMs();</span>
+        }
+
+        public void failWithTimeout() {
+<span class="fc" id="L2403">            logger.warn(&quot;Graceful shutdown timed out after {}ms&quot;, finishTimer.timeoutMs());</span>
+<span class="fc" id="L2404">            completeFuture.completeExceptionally(</span>
+                new TimeoutException(&quot;Timeout expired before graceful shutdown completed&quot;));
+<span class="fc" id="L2406">        }</span>
+
+        public void complete() {
+<span class="fc" id="L2409">            logger.info(&quot;Graceful shutdown completed&quot;);</span>
+<span class="fc" id="L2410">            completeFuture.complete(null);</span>
+<span class="fc" id="L2411">        }</span>
+    }
+
+    private static final class Registration&lt;T&gt; {
+        private final Ops ops;
+        private final Listener&lt;T&gt; listener;
+
+<span class="fc" id="L2418">        private Registration(Ops ops, Listener&lt;T&gt; listener) {</span>
+<span class="fc" id="L2419">            this.ops = ops;</span>
+<span class="fc" id="L2420">            this.listener = listener;</span>
+<span class="fc" id="L2421">        }</span>
+
+        private Ops ops() {
+<span class="fc" id="L2424">            return ops;</span>
+        }
+
+        private Listener&lt;T&gt; listener() {
+<span class="fc" id="L2428">            return listener;</span>
+        }
+
+<span class="fc" id="L2431">        private static enum Ops {</span>
+<span class="fc" id="L2432">            REGISTER, UNREGISTER</span>
+        }
+
+        private static &lt;T&gt; Registration&lt;T&gt; register(Listener&lt;T&gt; listener) {
+<span class="fc" id="L2436">            return new Registration&lt;&gt;(Ops.REGISTER, listener);</span>
+        }
+
+        private static &lt;T&gt; Registration&lt;T&gt; unregister(Listener&lt;T&gt; listener) {
+<span class="fc" id="L2440">            return new Registration&lt;&gt;(Ops.UNREGISTER, listener);</span>
+        }
+    }
+
+    private final class ListenerContext implements CloseListener&lt;BatchReader&lt;T&gt;&gt; {
+        private final RaftClient.Listener&lt;T&gt; listener;
+        // This field is used only by the Raft IO thread
+<span class="fc" id="L2447">        private LeaderAndEpoch lastFiredLeaderChange = new LeaderAndEpoch(OptionalInt.empty(), 0);</span>
+
+        // These fields are visible to both the Raft IO thread and the listener
+        // and are protected through synchronization on this ListenerContext instance
+<span class="fc" id="L2451">        private BatchReader&lt;T&gt; lastSent = null;</span>
+<span class="fc" id="L2452">        private long nextOffset = 0;</span>
+
+<span class="fc" id="L2454">        private ListenerContext(Listener&lt;T&gt; listener) {</span>
+<span class="fc" id="L2455">            this.listener = listener;</span>
+<span class="fc" id="L2456">        }</span>
+
+        /**
+         * Get the last acked offset, which is one greater than the offset of the
+         * last record which was acked by the state machine.
+         */
+        private synchronized long nextOffset() {
+<span class="fc" id="L2463">            return nextOffset;</span>
+        }
+
+        /**
+         * Get the next expected offset, which might be larger than the last acked
+         * offset if there are inflight batches which have not been acked yet.
+         * Note that when fetching from disk, we may not know the last offset of
+         * inflight data until it has been processed by the state machine. In this case,
+         * we delay sending additional data until the state machine has read to the
+         * end and the last offset is determined.
+         */
+        private synchronized OptionalLong nextExpectedOffset() {
+<span class="fc bfc" id="L2475" title="All 2 branches covered.">            if (lastSent != null) {</span>
+<span class="fc" id="L2476">                OptionalLong lastSentOffset = lastSent.lastOffset();</span>
+<span class="pc bpc" id="L2477" title="1 of 2 branches missed.">                if (lastSentOffset.isPresent()) {</span>
+<span class="nc" id="L2478">                    return OptionalLong.of(lastSentOffset.getAsLong() + 1);</span>
+                } else {
+<span class="fc" id="L2480">                    return OptionalLong.empty();</span>
+                }
+            } else {
+<span class="fc" id="L2483">                return OptionalLong.of(nextOffset);</span>
+            }
+        }
+
+        /**
+         * This API is used when the Listener needs to be notified of a new snapshot. This happens
+         * when the context's next offset is less than the log start offset.
+         */
+        private void fireHandleSnapshot(SnapshotReader&lt;T&gt; reader) {
+<span class="fc" id="L2492">            synchronized (this) {</span>
+<span class="fc" id="L2493">                nextOffset = reader.snapshotId().offset;</span>
+<span class="fc" id="L2494">                lastSent = null;</span>
+<span class="fc" id="L2495">            }</span>
+
+<span class="fc" id="L2497">            logger.debug(&quot;Notifying listener {} of snapshot {}&quot;, listenerName(), reader.snapshotId());</span>
+<span class="fc" id="L2498">            listener.handleSnapshot(reader);</span>
+<span class="fc" id="L2499">        }</span>
+
+        /**
+         * This API is used for committed records that have been received through
+         * replication. In general, followers will write new data to disk before they
+         * know whether it has been committed. Rather than retaining the uncommitted
+         * data in memory, we let the state machine read the records from disk.
+         */
+        private void fireHandleCommit(long baseOffset, Records records) {
+<span class="fc" id="L2508">            fireHandleCommit(</span>
+<span class="fc" id="L2509">                RecordsBatchReader.of(</span>
+                    baseOffset,
+                    records,
+<span class="fc" id="L2512">                    serde,</span>
+<span class="fc" id="L2513">                    BufferSupplier.create(),</span>
+                    MAX_BATCH_SIZE_BYTES,
+                    this
+                )
+            );
+<span class="fc" id="L2518">        }</span>
+
+        /**
+         * This API is used for committed records originating from {@link #scheduleAppend(int, List)}
+         * or {@link #scheduleAtomicAppend(int, List)} on this instance. In this case, we are able to
+         * save the original record objects, which saves the need to read them back from disk. This is
+         * a nice optimization for the leader which is typically doing more work than all of the
+         * followers.
+         */
+        private void fireHandleCommit(
+            long baseOffset,
+            int epoch,
+            long appendTimestamp,
+            int sizeInBytes,
+            List&lt;T&gt; records
+        ) {
+<span class="fc" id="L2534">            Batch&lt;T&gt; batch = Batch.data(baseOffset, epoch, appendTimestamp, sizeInBytes, records);</span>
+<span class="fc" id="L2535">            MemoryBatchReader&lt;T&gt; reader = MemoryBatchReader.of(Collections.singletonList(batch), this);</span>
+<span class="fc" id="L2536">            fireHandleCommit(reader);</span>
+<span class="fc" id="L2537">        }</span>
+
+        private String listenerName() {
+<span class="fc" id="L2540">            return KafkaRaftClient.listenerName(listener);</span>
+        }
+
+        private void fireHandleCommit(BatchReader&lt;T&gt; reader) {
+<span class="fc" id="L2544">            synchronized (this) {</span>
+<span class="fc" id="L2545">                this.lastSent = reader;</span>
+<span class="fc" id="L2546">            }</span>
+<span class="fc" id="L2547">            logger.debug(</span>
+                &quot;Notifying listener {} of batch for baseOffset {} and lastOffset {}&quot;,
+<span class="fc" id="L2549">                listenerName(),</span>
+<span class="fc" id="L2550">                reader.baseOffset(),</span>
+<span class="fc" id="L2551">                reader.lastOffset()</span>
+            );
+<span class="fc" id="L2553">            listener.handleCommit(reader);</span>
+<span class="fc" id="L2554">        }</span>
+
+        private void maybeFireLeaderChange(LeaderAndEpoch leaderAndEpoch) {
+<span class="fc bfc" id="L2557" title="All 2 branches covered.">            if (shouldFireLeaderChange(leaderAndEpoch)) {</span>
+<span class="fc" id="L2558">                lastFiredLeaderChange = leaderAndEpoch;</span>
+<span class="fc" id="L2559">                logger.debug(&quot;Notifying listener {} of leader change {}&quot;, listenerName(), leaderAndEpoch);</span>
+<span class="fc" id="L2560">                listener.handleLeaderChange(leaderAndEpoch);</span>
+            }
+<span class="fc" id="L2562">        }</span>
+
+        private boolean shouldFireLeaderChange(LeaderAndEpoch leaderAndEpoch) {
+<span class="fc bfc" id="L2565" title="All 2 branches covered.">            if (leaderAndEpoch.equals(lastFiredLeaderChange)) {</span>
+<span class="fc" id="L2566">                return false;</span>
+<span class="fc bfc" id="L2567" title="All 2 branches covered.">            } else if (leaderAndEpoch.epoch() &gt; lastFiredLeaderChange.epoch()) {</span>
+<span class="fc" id="L2568">                return true;</span>
+            } else {
+<span class="pc bpc" id="L2570" title="1 of 2 branches missed.">                return leaderAndEpoch.leaderId().isPresent() &amp;&amp;</span>
+<span class="pc bpc" id="L2571" title="1 of 2 branches missed.">                    !lastFiredLeaderChange.leaderId().isPresent();</span>
+            }
+        }
+
+        private void maybeFireLeaderChange(LeaderAndEpoch leaderAndEpoch, long epochStartOffset) {
+            // If this node is becoming the leader, then we can fire `handleClaim` as soon
+            // as the listener has caught up to the start of the leader epoch. This guarantees
+            // that the state machine has seen the full committed state before it becomes
+            // leader and begins writing to the log.
+<span class="fc bfc" id="L2580" title="All 4 branches covered.">            if (shouldFireLeaderChange(leaderAndEpoch) &amp;&amp; nextOffset() &gt;= epochStartOffset) {</span>
+<span class="fc" id="L2581">                lastFiredLeaderChange = leaderAndEpoch;</span>
+<span class="fc" id="L2582">                listener.handleLeaderChange(leaderAndEpoch);</span>
+            }
+<span class="fc" id="L2584">        }</span>
+
+        public synchronized void onClose(BatchReader&lt;T&gt; reader) {
+<span class="fc" id="L2587">            OptionalLong lastOffset = reader.lastOffset();</span>
+
+<span class="pc bpc" id="L2589" title="1 of 2 branches missed.">            if (lastOffset.isPresent()) {</span>
+<span class="fc" id="L2590">                nextOffset = lastOffset.getAsLong() + 1;</span>
+            }
+
+<span class="pc bpc" id="L2593" title="1 of 2 branches missed.">            if (lastSent == reader) {</span>
+<span class="fc" id="L2594">                lastSent = null;</span>
+<span class="fc" id="L2595">                wakeup();</span>
+            }
+<span class="fc" id="L2597">        }</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

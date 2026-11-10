@@ -1,0 +1,127 @@
+
+> Configure project :
+Starting build with version 3.0.1-SNAPSHOT using Gradle 7.1.1, Java 11 and Scala 2.12.15
+
+> Task :server-common:processResources NO-SOURCE
+> Task :server-common:determineCommitId UP-TO-DATE
+> Task :server-common:createVersionFile
+> Task :raft:processResources
+> Task :raft:processTestResources
+> Task :clients:processResources
+> Task :clients:determineCommitId UP-TO-DATE
+> Task :clients:createVersionFile
+> Task :clients:processTestResources
+> Task :generator:compileJava
+> Task :generator:processResources NO-SOURCE
+> Task :generator:classes
+
+> Task :raft:processMessages
+MessageGenerator: processed 1 Kafka message JSON files(s).
+
+> Task :clients:processMessages
+MessageGenerator: processed 156 Kafka message JSON files(s).
+
+> Task :clients:compileJava
+> Task :clients:classes
+> Task :server-common:compileJava
+> Task :server-common:classes
+> Task :server-common:jar
+> Task :raft:compileJava
+> Task :raft:classes
+> Task :clients:jar
+
+> Task :clients:processTestMessages
+MessageGenerator: processed 2 Kafka message JSON files(s).
+
+> Task :raft:checkstyleMain
+
+> Task :raft:spotbugsMain
+[main] INFO edu.umd.cs.findbugs.ExitCodes - Calculating exit code...
+
+> Task :clients:compileTestJava
+> Task :clients:testClasses
+> Task :raft:compileTestJava
+> Task :raft:testClasses
+> Task :raft:checkstyleTest
+
+> Task :raft:test
+org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[1] failed, log available in /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/build/reports/testOutput/org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[1].test.stdout
+
+BatchBuilderTest > testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[1] FAILED
+    org.opentest4j.AssertionFailedError: Expected java.lang.ArithmeticException to be thrown, but nothing was thrown.
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:71)
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:37)
+        at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3082)
+        at org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(BatchBuilderTest.java:77)
+org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[2] failed, log available in /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/build/reports/testOutput/org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[2].test.stdout
+
+BatchBuilderTest > testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[2] FAILED
+    org.opentest4j.AssertionFailedError: Expected java.lang.ArithmeticException to be thrown, but nothing was thrown.
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:71)
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:37)
+        at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3082)
+        at org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(BatchBuilderTest.java:77)
+org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[3] failed, log available in /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/build/reports/testOutput/org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[3].test.stdout
+
+BatchBuilderTest > testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[3] FAILED
+    org.opentest4j.AssertionFailedError: Expected java.lang.ArithmeticException to be thrown, but nothing was thrown.
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:71)
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:37)
+        at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3082)
+        at org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(BatchBuilderTest.java:77)
+org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[4] failed, log available in /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/build/reports/testOutput/org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[4].test.stdout
+
+BatchBuilderTest > testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[4] FAILED
+    org.opentest4j.AssertionFailedError: Expected java.lang.ArithmeticException to be thrown, but nothing was thrown.
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:71)
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:37)
+        at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3082)
+        at org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(BatchBuilderTest.java:77)
+org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[5] failed, log available in /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/build/reports/testOutput/org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[5].test.stdout
+
+BatchBuilderTest > testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[5] FAILED
+    org.opentest4j.AssertionFailedError: Expected java.lang.ArithmeticException to be thrown, but nothing was thrown.
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:71)
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:37)
+        at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3082)
+        at org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(BatchBuilderTest.java:77)
+org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[6] failed, log available in /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/build/reports/testOutput/org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[6].test.stdout
+
+BatchBuilderTest > testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(CompressionType)[6] FAILED
+    org.opentest4j.AssertionFailedError: Expected java.lang.ArithmeticException to be thrown, but nothing was thrown.
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:71)
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:37)
+        at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3082)
+        at org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsOpen(BatchBuilderTest.java:77)
+org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsClosed() failed, log available in /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/build/reports/testOutput/org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsClosed().test.stdout
+
+BatchBuilderTest > testBytesNeededThrowsOnIntegerOverflowWhenBatchIsClosed() FAILED
+    org.opentest4j.AssertionFailedError: Expected java.lang.ArithmeticException to be thrown, but nothing was thrown.
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:71)
+        at org.junit.jupiter.api.AssertThrows.assertThrows(AssertThrows.java:37)
+        at org.junit.jupiter.api.Assertions.assertThrows(Assertions.java:3082)
+        at org.apache.kafka.raft.internals.BatchBuilderTest.testBytesNeededThrowsOnIntegerOverflowWhenBatchIsClosed(BatchBuilderTest.java:119)
+
+7 tests completed, 7 failed
+
+> Task :raft:test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':raft:test'.
+> There were failing tests. See the report at: file:///Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/build/reports/tests/test/index.html
+
+* Try:
+Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.
+
+* Get more help at https://help.gradle.org
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 8.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+See https://docs.gradle.org/7.1.1/userguide/command_line_interface.html#sec:command_line_warnings
+
+BUILD FAILED in 12s
+21 actionable tasks: 21 executed

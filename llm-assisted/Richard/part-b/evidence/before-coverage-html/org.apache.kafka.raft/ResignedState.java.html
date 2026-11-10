@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ResignedState.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft</a> &gt; <span class="el_source">ResignedState.java</span></div><h1>ResignedState.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft;
+
+import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Timer;
+import org.slf4j.Logger;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * This state represents a leader which has fenced itself either because it
+ * is shutting down or because it has encountered a soft failure of some sort.
+ * No writes are accepted in this state and we are not permitted to vote for
+ * any other candidate in this epoch.
+ *
+ * A resigned leader may initiate a new election by sending `EndQuorumEpoch`
+ * requests to all of the voters. This state tracks delivery of this request
+ * in order to prevent unnecessary retries.
+ *
+ * A voter will remain in the `Resigned` state until we either learn about
+ * another election, or our own election timeout expires and we become a
+ * Candidate.
+ */
+public class ResignedState implements EpochState {
+    private final int localId;
+    private final int epoch;
+    private final Set&lt;Integer&gt; voters;
+    private final long electionTimeoutMs;
+    private final Set&lt;Integer&gt; unackedVoters;
+    private final Timer electionTimer;
+    private final List&lt;Integer&gt; preferredSuccessors;
+    private final Logger log;
+
+    public ResignedState(
+        Time time,
+        int localId,
+        int epoch,
+        Set&lt;Integer&gt; voters,
+        long electionTimeoutMs,
+        List&lt;Integer&gt; preferredSuccessors,
+        LogContext logContext
+<span class="fc" id="L60">    ) {</span>
+<span class="fc" id="L61">        this.localId = localId;</span>
+<span class="fc" id="L62">        this.epoch = epoch;</span>
+<span class="fc" id="L63">        this.voters = voters;</span>
+<span class="fc" id="L64">        this.unackedVoters = new HashSet&lt;&gt;(voters);</span>
+<span class="fc" id="L65">        this.unackedVoters.remove(localId);</span>
+<span class="fc" id="L66">        this.electionTimeoutMs = electionTimeoutMs;</span>
+<span class="fc" id="L67">        this.electionTimer = time.timer(electionTimeoutMs);</span>
+<span class="fc" id="L68">        this.preferredSuccessors = preferredSuccessors;</span>
+<span class="fc" id="L69">        this.log = logContext.logger(ResignedState.class);</span>
+<span class="fc" id="L70">    }</span>
+
+    @Override
+    public ElectionState election() {
+<span class="fc" id="L74">        return ElectionState.withElectedLeader(epoch, localId, voters);</span>
+    }
+
+    @Override
+    public int epoch() {
+<span class="fc" id="L79">        return epoch;</span>
+    }
+
+    /**
+     * Get the set of voters which have yet to acknowledge the resignation.
+     * This node will send `EndQuorumEpoch` requests to this set until these
+     * voters acknowledge the request or we transition to another state.
+     *
+     * @return the set of unacknowledged voters
+     */
+    public Set&lt;Integer&gt; unackedVoters() {
+<span class="fc" id="L90">        return unackedVoters;</span>
+    }
+
+    /**
+     * Invoked after receiving a successful `EndQuorumEpoch` response. This
+     * is in order to prevent unnecessary retries.
+     *
+     * @param voterId the ID of the voter that send the successful response
+     */
+    public void acknowledgeResignation(int voterId) {
+<span class="pc bpc" id="L100" title="1 of 2 branches missed.">        if (!voters.contains(voterId)) {</span>
+<span class="nc" id="L101">            throw new IllegalArgumentException(&quot;Attempt to acknowledge delivery of `EndQuorumEpoch` &quot; +</span>
+                &quot;by a non-voter &quot; + voterId);
+        }
+<span class="fc" id="L104">        unackedVoters.remove(voterId);</span>
+<span class="fc" id="L105">    }</span>
+
+    /**
+     * Check whether the timeout has expired.
+     *
+     * @param currentTimeMs current time in milliseconds
+     * @return true if the timeout has expired, false otherwise
+     */
+    public boolean hasElectionTimeoutExpired(long currentTimeMs) {
+<span class="fc" id="L114">        electionTimer.update(currentTimeMs);</span>
+<span class="fc" id="L115">        return electionTimer.isExpired();</span>
+    }
+
+    /**
+     * Check the time remaining until the timeout expires.
+     *
+     * @param currentTimeMs current time in milliseconds
+     * @return the duration in milliseconds from the current time before the timeout expires
+     */
+    public long remainingElectionTimeMs(long currentTimeMs) {
+<span class="fc" id="L125">        electionTimer.update(currentTimeMs);</span>
+<span class="fc" id="L126">        return electionTimer.remainingMs();</span>
+    }
+
+    public List&lt;Integer&gt; preferredSuccessors() {
+<span class="fc" id="L130">        return preferredSuccessors;</span>
+    }
+
+    @Override
+    public boolean canGrantVote(int candidateId, boolean isLogUpToDate) {
+<span class="fc" id="L135">        log.debug(&quot;Rejecting vote request from candidate {} since we have resigned as candidate/leader in epoch {}&quot;,</span>
+<span class="fc" id="L136">            candidateId, epoch);</span>
+<span class="fc" id="L137">        return false;</span>
+    }
+
+    @Override
+    public String name() {
+<span class="nc" id="L142">        return &quot;Resigned&quot;;</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="fc" id="L147">        return &quot;ResignedState(&quot; +</span>
+            &quot;localId=&quot; + localId +
+            &quot;, epoch=&quot; + epoch +
+            &quot;, voters=&quot; + voters +
+            &quot;, electionTimeoutMs=&quot; + electionTimeoutMs +
+            &quot;, unackedVoters=&quot; + unackedVoters +
+            &quot;, preferredSuccessors=&quot; + preferredSuccessors +
+            ')';
+    }
+
+    @Override
+<span class="fc" id="L158">    public void close() {}</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

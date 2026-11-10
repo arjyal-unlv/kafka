@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RaftRequest.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft</a> &gt; <span class="el_source">RaftRequest.java</span></div><h1>RaftRequest.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft;
+
+import org.apache.kafka.common.protocol.ApiMessage;
+
+import java.util.concurrent.CompletableFuture;
+
+public abstract class RaftRequest implements RaftMessage {
+    protected final int correlationId;
+    protected final ApiMessage data;
+    protected final long createdTimeMs;
+
+<span class="fc" id="L28">    public RaftRequest(int correlationId, ApiMessage data, long createdTimeMs) {</span>
+<span class="fc" id="L29">        this.correlationId = correlationId;</span>
+<span class="fc" id="L30">        this.data = data;</span>
+<span class="fc" id="L31">        this.createdTimeMs = createdTimeMs;</span>
+<span class="fc" id="L32">    }</span>
+
+    @Override
+    public int correlationId() {
+<span class="fc" id="L36">        return correlationId;</span>
+    }
+
+    @Override
+    public ApiMessage data() {
+<span class="fc" id="L41">        return data;</span>
+    }
+
+    public long createdTimeMs() {
+<span class="nc" id="L45">        return createdTimeMs;</span>
+    }
+
+    public static class Inbound extends RaftRequest {
+<span class="fc" id="L49">        public final CompletableFuture&lt;RaftResponse.Outbound&gt; completion = new CompletableFuture&lt;&gt;();</span>
+
+        public Inbound(int correlationId, ApiMessage data, long createdTimeMs) {
+<span class="fc" id="L52">            super(correlationId, data, createdTimeMs);</span>
+<span class="fc" id="L53">        }</span>
+
+        @Override
+        public String toString() {
+<span class="nc" id="L57">            return &quot;InboundRequest(&quot; +</span>
+                    &quot;correlationId=&quot; + correlationId +
+                    &quot;, data=&quot; + data +
+                    &quot;, createdTimeMs=&quot; + createdTimeMs +
+                    ')';
+        }
+    }
+
+    public static class Outbound extends RaftRequest {
+        private final int destinationId;
+<span class="fc" id="L67">        public final CompletableFuture&lt;RaftResponse.Inbound&gt; completion = new CompletableFuture&lt;&gt;();</span>
+
+        public Outbound(int correlationId, ApiMessage data, int destinationId, long createdTimeMs) {
+<span class="fc" id="L70">            super(correlationId, data, createdTimeMs);</span>
+<span class="fc" id="L71">            this.destinationId = destinationId;</span>
+<span class="fc" id="L72">        }</span>
+
+        public int destinationId() {
+<span class="fc" id="L75">            return destinationId;</span>
+        }
+
+        @Override
+        public String toString() {
+<span class="nc" id="L80">            return &quot;OutboundRequest(&quot; +</span>
+                    &quot;correlationId=&quot; + correlationId +
+                    &quot;, data=&quot; + data +
+                    &quot;, createdTimeMs=&quot; + createdTimeMs +
+                    &quot;, destinationId=&quot; + destinationId +
+                    ')';
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

@@ -1,0 +1,63 @@
+
+> Configure project :
+Starting build with version 3.0.1-SNAPSHOT using Gradle 7.1.1, Java 11 and Scala 2.12.15
+
+> Task :server-common:processResources NO-SOURCE
+> Task :server-common:determineCommitId UP-TO-DATE
+> Task :server-common:createVersionFile
+> Task :raft:processResources
+> Task :raft:processTestResources
+> Task :clients:processResources
+> Task :clients:determineCommitId UP-TO-DATE
+> Task :clients:createVersionFile
+> Task :clients:processTestResources
+> Task :generator:compileJava
+> Task :generator:processResources NO-SOURCE
+> Task :generator:classes
+
+> Task :raft:processMessages
+MessageGenerator: processed 1 Kafka message JSON files(s).
+
+> Task :clients:processMessages
+MessageGenerator: processed 156 Kafka message JSON files(s).
+
+> Task :clients:compileJava
+> Task :clients:classes
+> Task :server-common:compileJava
+> Task :server-common:classes
+> Task :server-common:jar
+> Task :raft:compileJava
+> Task :raft:classes
+> Task :clients:jar
+
+> Task :clients:processTestMessages
+MessageGenerator: processed 2 Kafka message JSON files(s).
+
+> Task :raft:checkstyleMain FAILED
+[ant:checkstyle] [ERROR] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/src/main/java/org/apache/kafka/raft/internals/BatchBuilder.java:145:35: Unnecessary parentheses around expression. [UnnecessaryParentheses]
+[ant:checkstyle] [ERROR] /Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/src/main/java/org/apache/kafka/raft/internals/BatchBuilder.java:160:31: Unnecessary parentheses around expression. [UnnecessaryParentheses]
+
+> Task :clients:compileTestJava
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':raft:checkstyleMain'.
+> Checkstyle rule violations were found. See the report at: file:///Users/richardsserunjogi/Work/CS/Fall2026/CS789-REENGINEERING/projects/group-project/kafka/raft/build/reports/checkstyle/main.html
+  Checkstyle files with violations: 1
+  Checkstyle violations by severity: [error:2]
+
+
+* Try:
+Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.
+
+* Get more help at https://help.gradle.org
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 8.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+See https://docs.gradle.org/7.1.1/userguide/command_line_interface.html#sec:command_line_warnings
+
+BUILD FAILED in 8s
+17 actionable tasks: 17 executed

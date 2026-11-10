@@ -1,0 +1,773 @@
+
+> Configure project :
+Starting build with version 3.0.1-SNAPSHOT using Gradle 7.1.1, Java 11 and Scala 2.12.15
+
+> Task :server-common:processResources NO-SOURCE
+> Task :server-common:determineCommitId UP-TO-DATE
+> Task :server-common:createVersionFile
+> Task :raft:processResources
+> Task :raft:processTestResources
+> Task :clients:processResources
+> Task :clients:determineCommitId UP-TO-DATE
+> Task :clients:createVersionFile
+> Task :clients:processTestResources
+> Task :generator:compileJava
+> Task :generator:processResources NO-SOURCE
+> Task :generator:classes
+
+> Task :raft:processMessages
+MessageGenerator: processed 1 Kafka message JSON files(s).
+
+> Task :clients:processTestMessages
+MessageGenerator: processed 2 Kafka message JSON files(s).
+
+> Task :clients:processMessages
+MessageGenerator: processed 156 Kafka message JSON files(s).
+
+> Task :clients:compileJava
+> Task :clients:classes
+> Task :server-common:compileJava
+> Task :server-common:classes
+> Task :server-common:jar
+> Task :raft:compileJava
+> Task :raft:classes
+> Task :clients:jar
+> Task :raft:checkstyleMain
+> Task :clients:compileTestJava
+> Task :clients:testClasses
+
+> Task :raft:spotbugsMain
+[main] INFO edu.umd.cs.findbugs.ExitCodes - Calculating exit code...
+
+> Task :raft:compileTestJava
+> Task :raft:testClasses
+> Task :raft:checkstyleTest
+
+> Task :raft:test
+
+VotedStateTest > testGrantVote(boolean) > org.apache.kafka.raft.VotedStateTest.testGrantVote(boolean)[1] PASSED
+
+VotedStateTest > testGrantVote(boolean) > org.apache.kafka.raft.VotedStateTest.testGrantVote(boolean)[2] PASSED
+
+VotedStateTest > testElectionTimeout() PASSED
+
+FileRawSnapshotTest > testBatchWriteReadSnapshot() PASSED
+
+FileRawSnapshotTest > testCreateSnapshotWithSameId() PASSED
+
+FileRawSnapshotTest > testPartialWriteReadSnapshot() PASSED
+
+MockLogTest > testValidateOffsetLessThanOldestSnapshotOffset() PASSED
+
+FileRawSnapshotTest > testBufferWriteReadSnapshot() PASSED
+
+FileRawSnapshotTest > testAbortedSnapshot() PASSED
+
+FileRawSnapshotTest > testAppendToFrozenSnapshot() PASSED
+
+FileRawSnapshotTest > testWritingSnapshot() PASSED
+
+FileRawSnapshotTest > testWriteReadSnapshot() PASSED
+
+CandidateStateTest > testCannotRejectVoteFromLocalId() PASSED
+
+CandidateStateTest > testSingleNodeQuorum() PASSED
+
+CandidateStateTest > testThreeNodeQuorumVoteGranted() PASSED
+
+MockExpirationServiceTest > testFailAfter() PASSED
+
+ThresholdPurgatoryTest > testExpiration() PASSED
+
+ThresholdPurgatoryTest > testExternalCompletion() PASSED
+
+ThresholdPurgatoryTest > testCompleteAllExceptionally() PASSED
+
+ThresholdPurgatoryTest > testThresholdCompletion() PASSED
+
+ThresholdPurgatoryTest > testCompleteAll() PASSED
+
+ResignedStateTest > testResignedState() PASSED
+
+MockLogTest > testTruncateBelowHighWatermark() PASSED
+
+MockLogTest > testAppendAsFollower() PASSED
+
+MockLogTest > testTopicId() PASSED
+
+MockLogTest > testValidateValidEpochAndOffset() PASSED
+
+MockLogTest > testCreateSnapshotMuchEalierEpoch() PASSED
+
+MockLogTest > testValidateOffsetLessThanLEO() PASSED
+
+MockLogTest > testEndOffsetForEpoch() PASSED
+
+MockLogTest > testValidateEpochGreaterThanLastKnownEpoch() PASSED
+
+MockLogTest > testTruncateWillRemoveOlderSnapshot() PASSED
+
+MockLogTest > testEmptyAppendNotAllowed() PASSED
+
+MockLogTest > testValidateEpochLessThanFirstEpochInLog() PASSED
+
+MockLogTest > testValidateEpochLessThanOldestSnapshotEpoch() PASSED
+
+MockLogTest > testFailToIncreaseLogStartPastHighWatermark() PASSED
+
+MockLogTest > testReadOutOfRangeOffset() PASSED
+
+MockLogTest > testCreateExistingSnapshot() PASSED
+
+MockLogTest > testReadRecords() PASSED
+
+MockLogTest > testValidateOffsetGreatThanEndOffset() PASSED
+
+MockLogTest > testCreateSnapshot() PASSED
+
+MockLogTest > testUpdateLogStartOffset() PASSED
+
+MockLogTest > testValidateUnknownEpochLessThanLastKnownGreaterThanOldestSnapshot() PASSED
+
+MockLogTest > testReadUpToLogEnd() PASSED
+
+MockLogTest > testCreateSnapshotMuchLaterEpoch() PASSED
+
+CandidateStateTest > testGrantVote(boolean) > org.apache.kafka.raft.CandidateStateTest.testGrantVote(boolean)[1] PASSED
+
+CandidateStateTest > testGrantVote(boolean) > org.apache.kafka.raft.CandidateStateTest.testGrantVote(boolean)[2] PASSED
+
+CandidateStateTest > testTwoNodeQuorumVoteRejected() PASSED
+
+CandidateStateTest > testTwoNodeQuorumVoteGranted() PASSED
+
+CandidateStateTest > testCannotChangeVoteRejectedToGranted() PASSED
+
+ResignedStateTest > testGrantVote(boolean) > org.apache.kafka.raft.ResignedStateTest.testGrantVote(boolean)[1] PASSED
+
+ResignedStateTest > testGrantVote(boolean) > org.apache.kafka.raft.ResignedStateTest.testGrantVote(boolean)[2] PASSED
+
+CandidateStateTest > testIdempotentGrant() PASSED
+
+CandidateStateTest > testCannotGrantOrRejectNonVoters() PASSED
+
+CandidateStateTest > testIdempotentReject() PASSED
+
+CandidateStateTest > testThreeNodeQuorumVoteRejected() PASSED
+
+CandidateStateTest > testCannotChangeVoteGrantedToRejected() PASSED
+
+MockLogTest > testAppendControlRecord() PASSED
+
+MockLogTest > testUnexpectedAppendOffset() PASSED
+
+MockLogTest > testAssignEpochStartOffset() PASSED
+
+MockLogTest > testValidateOffsetEqualToOldestSnapshotOffset() PASSED
+
+MockLogTest > testCreateSnapshotBeforeLogStartOffset() PASSED
+
+UnattachedStateTest > testGrantVote(boolean) > org.apache.kafka.raft.UnattachedStateTest.testGrantVote(boolean)[1] PASSED
+
+MockLogTest > testCreateSnapshotValidation() PASSED
+
+MockLogTest > testUpdateHighWatermark() PASSED
+
+UnattachedStateTest > testGrantVote(boolean) > org.apache.kafka.raft.UnattachedStateTest.testGrantVote(boolean)[2] PASSED
+
+MockLogTest > testMonotonicEpochStartOffset() PASSED
+
+UnattachedStateTest > testElectionTimeout() PASSED
+
+MockLogTest > testUnflushedRecordsLostAfterReopen() PASSED
+
+MockLogTest > testCreateSnapshotWithMissingEpoch() PASSED
+
+MockLogTest > testTruncateFullyToLatestSnapshot() PASSED
+
+BatchMemoryPoolTest > testOversizeAllocation() PASSED
+
+BatchMemoryPoolTest > testReleaseBufferNotMatchingBatchSize() PASSED
+
+BatchMemoryPoolTest > testAllocateAndRelease() PASSED
+
+BatchMemoryPoolTest > testMultipleAllocations() PASSED
+
+MockLogTest > testAppendAsLeader() PASSED
+
+MockLogTest > testDecrementHighWatermark() PASSED
+
+MockLogTest > testMetadataValidation() PASSED
+
+MockLogTest > testDoesntTruncateFully() PASSED
+
+MockLogTest > testUpdateLogStartOffsetWillRemoveOlderSnapshot() PASSED
+
+MockLogTest > testTopicPartition() PASSED
+
+MockLogTest > testReadUpToHighWatermark() PASSED
+
+MockLogTest > testTruncateTo() PASSED
+
+MockLogTest > testUpdateLogStartOffsetWithMissingSnapshot() PASSED
+
+MockLogTest > testCreateSnapshotLaterThanHighWatermark() PASSED
+
+MockLogTest > testReadMissingSnapshot() PASSED
+
+BatchBuilderTest > testBytesNeededThrowsOnIntegerOverflow() PASSED
+
+BatchBuilderTest > testBuildBatch(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBuildBatch(CompressionType)[1] PASSED
+
+SnapshotsTest > testValidSnapshotFilename() PASSED
+
+SnapshotsTest > testValidPartialSnapshotFilename() PASSED
+
+BatchBuilderTest > testBuildBatch(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBuildBatch(CompressionType)[2] PASSED
+
+SnapshotsTest > testDeleteSnapshot(boolean) > org.apache.kafka.snapshot.SnapshotsTest.testDeleteSnapshot(boolean)[1] PASSED
+
+SnapshotsTest > testDeleteSnapshot(boolean) > org.apache.kafka.snapshot.SnapshotsTest.testDeleteSnapshot(boolean)[2] PASSED
+
+SnapshotsTest > testValidDeletedSnapshotFilename() PASSED
+
+SnapshotsTest > testInvalidSnapshotFilenames() PASSED
+
+FollowerStateTest > testGrantVote(boolean) > org.apache.kafka.raft.FollowerStateTest.testGrantVote(boolean)[1] PASSED
+
+FollowerStateTest > testGrantVote(boolean) > org.apache.kafka.raft.FollowerStateTest.testGrantVote(boolean)[2] PASSED
+
+FollowerStateTest > testFetchTimeoutExpiration() PASSED
+
+FollowerStateTest > testMonotonicHighWatermark() PASSED
+
+RecordsIteratorTest > testEmptyRecords(Records) > org.apache.kafka.raft.internals.RecordsIteratorTest.testEmptyRecords(Records)[1] PASSED
+
+RecordsIteratorTest > testEmptyRecords(Records) > org.apache.kafka.raft.internals.RecordsIteratorTest.testEmptyRecords(Records)[2] PASSED
+
+RequestManagerTest > testResetAllConnections() PASSED
+
+RequestManagerTest > testSuccessfulResponse() PASSED
+
+RequestManagerTest > testRequestTimeout() PASSED
+
+RequestManagerTest > testBackoffAfterFailure() PASSED
+
+RequestManagerTest > testIgnoreUnexpectedResponse() PASSED
+
+FileBasedStateStoreTest > testReadElectionState() PASSED
+
+FileBasedStateStoreTest > testWriteElectionState() PASSED
+
+BatchBuilderTest > testBuildBatch(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBuildBatch(CompressionType)[3] PASSED
+
+MemoryBatchReaderTest > testIteration() PASSED
+
+RecordsBatchReaderTest > testReadFromMemoryRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromMemoryRecords(CompressionType)[1] PASSED
+
+BatchAccumulatorTest > testSingleBatchAccumulation() PASSED
+
+BatchAccumulatorTest > testRecordsAreSplit() PASSED
+
+RecordsBatchReaderTest > testReadFromMemoryRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromMemoryRecords(CompressionType)[2] PASSED
+
+BatchAccumulatorTest > testLingerBeginsOnFirstWrite() PASSED
+
+BatchAccumulatorTest > testForceDrain() PASSED
+
+BatchBuilderTest > testBuildBatch(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBuildBatch(CompressionType)[4] PASSED
+
+BatchAccumulatorTest > testDrainDoesNotBlockWithConcurrentAppend() PASSED
+
+BatchAccumulatorTest > testForceDrainBeforeAppendLeaderChangeMessage() PASSED
+
+BatchAccumulatorTest > testLingerIgnoredIfAccumulatorEmpty() PASSED
+
+BatchAccumulatorTest > testUnflushedBuffersReleasedByClose() PASSED
+
+BatchAccumulatorTest > testCompletedBatchReleaseBuffer() PASSED
+
+BatchAccumulatorTest > testMultipleBatchAccumulation() PASSED
+
+BatchAccumulatorTest > testLeaderChangeMessageWritten() PASSED
+
+BatchAccumulatorTest > testCloseWhenEmpty() PASSED
+
+QuorumStateTest > testVotedToCandidate() PASSED
+
+QuorumStateTest > testInitializeAsUnattached() PASSED
+
+QuorumStateTest > testVotedToInvalidLeaderOrResigned() PASSED
+
+QuorumStateTest > testUnattachedToUnattached() PASSED
+
+QuorumStateTest > testCandidateToUnattached() PASSED
+
+QuorumStateTest > testObserverInitializationFailsIfElectionStateHasVotedCandidate() PASSED
+
+QuorumStateTest > testUnattachedToVotedHigherEpoch() PASSED
+
+QuorumStateTest > testFollowerToVotedHigherEpoch() PASSED
+
+QuorumStateTest > testCandidateToFollower() PASSED
+
+QuorumStateTest > testVotedToFollowerSameEpoch() PASSED
+
+QuorumStateTest > testLeaderToCandidate() PASSED
+
+QuorumStateTest > testUnattachedToLeaderOrResigned() PASSED
+
+QuorumStateTest > testFollowerToUnattachedHigherEpoch() PASSED
+
+QuorumStateTest > testFollowerToLeaderOrResigned() PASSED
+
+QuorumStateTest > testFollowerToVotedSameEpoch() PASSED
+
+QuorumStateTest > testObserverFollowerToUnattached() PASSED
+
+QuorumStateTest > testFollowerToFollowerSameEpoch() PASSED
+
+QuorumStateTest > testCandidateToAnyStateLowerEpoch() PASSED
+
+QuorumStateTest > testVotedToUnattachedHigherEpoch() PASSED
+
+QuorumStateTest > testUnattachedToVotedSameEpoch() PASSED
+
+QuorumStateTest > testVotedToAnyStateLowerEpoch() PASSED
+
+QuorumStateTest > testCandidateToCandidate() PASSED
+
+QuorumStateTest > testLeaderToAnyStateLowerEpoch() PASSED
+
+QuorumStateTest > testFollowerToCandidate() PASSED
+
+QuorumStateTest > testLeaderToVoted() PASSED
+
+QuorumStateTest > testLeaderToResigned() PASSED
+
+QuorumStateTest > testInitializePrimordialEpoch() PASSED
+
+QuorumStateTest > testFollowerToAnyStateLowerEpoch() PASSED
+
+QuorumStateTest > testInitializeWithCorruptedStore() PASSED
+
+QuorumStateTest > testObserverUnattachedToFollower() PASSED
+
+QuorumStateTest > testCannotBecomeFollowerOfNonVoter() PASSED
+
+QuorumStateTest > testObserverCannotBecomeCandidateOrLeaderOrVoted() PASSED
+
+QuorumStateTest > testUnattachedToAnyStateLowerEpoch() PASSED
+
+QuorumStateTest > testInconsistentVotersBetweenConfigAndState() PASSED
+
+QuorumStateTest > testCandidateToLeader() PASSED
+
+QuorumStateTest > testVotedToFollowerHigherEpoch() PASSED
+
+QuorumStateTest > testLeaderToFollower() PASSED
+
+QuorumStateTest > testInitializeAsFollower() PASSED
+
+QuorumStateTest > testInitializeAsResignedCandidate() PASSED
+
+QuorumStateTest > testCandidateToLeaderWithoutGrantedVote() PASSED
+
+QuorumStateTest > testFollowerToFollowerHigherEpoch() PASSED
+
+QuorumStateTest > testHighWatermarkRetained() PASSED
+
+QuorumStateTest > testVotedToVotedSameEpoch() PASSED
+
+QuorumStateTest > testLeaderToLeader() PASSED
+
+QuorumStateTest > testHasRemoteLeader() PASSED
+
+QuorumStateTest > testUnattachedToFollowerHigherEpoch() PASSED
+
+QuorumStateTest > testVotedToUnattachedSameEpoch() PASSED
+
+QuorumStateTest > testLeaderToUnattached() PASSED
+
+QuorumStateTest > testInitializeAsVoted() PASSED
+
+QuorumStateTest > testUnattachedToCandidate() PASSED
+
+QuorumStateTest > testUnattachedToFollowerSameEpoch() PASSED
+
+QuorumStateTest > testFollowerToUnattachedSameEpoch() PASSED
+
+QuorumStateTest > testInitializeAsResignedLeader() PASSED
+
+QuorumStateTest > testCandidateToVoted() PASSED
+
+QuorumStateTest > testInitializeWithEmptyLocalId() PASSED
+
+QuorumStateTest > testCandidateToResigned() PASSED
+
+QuorumStateTest > testCannotFollowOrVoteForSelf() PASSED
+
+SnapshotWriterReaderTest > testAbortedSnapshot() PASSED
+
+SnapshotWriterReaderTest > testSnapshotDelimiters() PASSED
+
+SnapshotWriterReaderTest > testAppendToFrozenSnapshot() PASSED
+
+SnapshotWriterReaderTest > testWritingSnapshot() PASSED
+
+LeaderStateTest > testUpdateHighWatermarkMetadata() PASSED
+
+LeaderStateTest > testObserverStateExpiration() PASSED
+
+LeaderStateTest > testNonFollowerAcknowledgement() PASSED
+
+LeaderStateTest > testUpdateHighWatermarkQuorumSizeOne() PASSED
+
+LeaderStateTest > testUpdateHighWatermarkQuorumSizeTwo() PASSED
+
+LeaderStateTest > testNoOpForNegativeRemoteNodeId() PASSED
+
+LeaderStateTest > testGetObserverStatesWithObserver() PASSED
+
+LeaderStateTest > testUpdateHighWatermarkQuorumSizeThree() PASSED
+
+LeaderStateTest > testGrantVote(boolean) > org.apache.kafka.raft.LeaderStateTest.testGrantVote(boolean)[1] PASSED
+
+LeaderStateTest > testGrantVote(boolean) > org.apache.kafka.raft.LeaderStateTest.testGrantVote(boolean)[2] PASSED
+
+LeaderStateTest > testNonMonotonicHighWatermarkUpdate() PASSED
+
+LeaderStateTest > testFollowerAcknowledgement() PASSED
+
+LeaderStateTest > testIdempotentEndOffsetUpdate() PASSED
+
+LeaderStateTest > testNonMonotonicLocalEndOffsetUpdate() PASSED
+
+LeaderStateTest > testGetVoterStates() PASSED
+
+LeaderStateTest > testGetNonLeaderFollowersByFetchOffsetDescending() PASSED
+
+LeaderStateTest > testRequireNonNullAccumulator() PASSED
+
+BlockingMessageQueueTest > testOfferAndPoll() PASSED
+
+BlockingMessageQueueTest > testWakeupFromPoll() PASSED
+
+KafkaRaftMetricsTest > shouldRecordVoterQuorumState() PASSED
+
+KafkaRaftMetricsTest > shouldRecordNonVoterQuorumState() PASSED
+
+KafkaRaftMetricsTest > shouldRecordRate() PASSED
+
+KafkaRaftMetricsTest > shouldRecordLogEnd() PASSED
+
+KafkaRaftMetricsTest > shouldRecordNumUnknownVoterConnections() PASSED
+
+KafkaRaftMetricsTest > shouldRecordLatency() PASSED
+
+KafkaRaftMetricsTest > shouldRecordPollIdleRatio() PASSED
+
+BatchBuilderTest > testBuildBatch(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBuildBatch(CompressionType)[5] PASSED
+
+BatchBuilderTest > testBuildBatch(CompressionType) > org.apache.kafka.raft.internals.BatchBuilderTest.testBuildBatch(CompressionType)[6] PASSED
+
+BatchBuilderTest > testHasRoomForUncompressed(int) > org.apache.kafka.raft.internals.BatchBuilderTest.testHasRoomForUncompressed(int)[1] PASSED
+
+BatchBuilderTest > testHasRoomForUncompressed(int) > org.apache.kafka.raft.internals.BatchBuilderTest.testHasRoomForUncompressed(int)[2] PASSED
+
+BatchBuilderTest > testHasRoomForUncompressed(int) > org.apache.kafka.raft.internals.BatchBuilderTest.testHasRoomForUncompressed(int)[3] PASSED
+
+BatchBuilderTest > testHasRoomForUncompressed(int) > org.apache.kafka.raft.internals.BatchBuilderTest.testHasRoomForUncompressed(int)[4] PASSED
+
+BatchBuilderTest > testHasRoomForUncompressed(int) > org.apache.kafka.raft.internals.BatchBuilderTest.testHasRoomForUncompressed(int)[5] PASSED
+
+BatchBuilderTest > testHasRoomForUncompressed(int) > org.apache.kafka.raft.internals.BatchBuilderTest.testHasRoomForUncompressed(int)[6] PASSED
+
+BatchBuilderTest > testHasRoomForUncompressed(int) > org.apache.kafka.raft.internals.BatchBuilderTest.testHasRoomForUncompressed(int)[7] PASSED
+
+RecordsBatchReaderTest > testReadFromMemoryRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromMemoryRecords(CompressionType)[3] PASSED
+
+KafkaRaftClientSnapshotTest > testPartialFetchSnapshotRequestAsLeader() PASSED
+
+RecordsBatchReaderTest > testReadFromMemoryRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromMemoryRecords(CompressionType)[4] PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotResponsePartialData() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchRequestOffsetLessThanLogStart() PASSED
+
+KafkaRaftClientSnapshotTest > testListenerRenotified() PASSED
+
+RecordsBatchReaderTest > testReadFromMemoryRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromMemoryRecords(CompressionType)[5] PASSED
+
+RecordsBatchReaderTest > testReadFromMemoryRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromMemoryRecords(CompressionType)[6] PASSED
+
+RecordsBatchReaderTest > testReadFromFileRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromFileRecords(CompressionType)[1] PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotRequestWithNewerEpoch() PASSED
+
+RecordsBatchReaderTest > testReadFromFileRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromFileRecords(CompressionType)[2] PASSED
+
+RecordsBatchReaderTest > testReadFromFileRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromFileRecords(CompressionType)[3] PASSED
+
+RecordsBatchReaderTest > testReadFromFileRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromFileRecords(CompressionType)[4] PASSED
+
+RecordsBatchReaderTest > testReadFromFileRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromFileRecords(CompressionType)[5] PASSED
+
+RecordsBatchReaderTest > testReadFromFileRecords(CompressionType) > org.apache.kafka.raft.internals.RecordsBatchReaderTest.testReadFromFileRecords(CompressionType)[6] PASSED
+
+KafkaRaftClientSnapshotTest > testFetchRequestTruncateToLogStart() PASSED
+
+KafkaRaftClientTest > testInitializeAsCandidateFromStateStore() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotResponseToNotFollower() PASSED
+
+KafkaRaftClientTest > testEndQuorumStartsNewElectionImmediatelyIfFollowerUnattached() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotResponseFromOlderEpoch() PASSED
+
+KafkaRaftClientTest > testInvalidFetchRequest() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotRequestUnknownPartition() PASSED
+
+KafkaRaftClientTest > testVoteResponseIgnoredAfterBecomingFollower() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotResponseFromNewerEpochNotLeader() PASSED
+
+KafkaRaftClientTest > testHandleClaimCallbackFiresAfterHighWatermarkReachesEpochStartOffset() PASSED
+
+KafkaRaftClientTest > testRejectVotesFromSameEpochAfterResigningLeadership() PASSED
+
+KafkaRaftClientTest > testPurgatoryFetchSatisfiedByWrite() PASSED
+
+KafkaRaftClientTest > testFollowerReplication() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchRequestWithLastFetchedEpochLessThanOldestSnapshot() PASSED
+
+KafkaRaftClientTest > testHandleCommitCallbackFiresInVotedState() PASSED
+
+KafkaRaftClientTest > testObserverQuorumDiscoveryFailure() PASSED
+
+KafkaRaftClientTest > testHandleEndQuorumRequest() PASSED
+
+KafkaRaftClientTest > testClusterAuthorizationFailedInBeginQuorumEpoch() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchResponseWithSnapshotId() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotRequestClusterIdValidation() PASSED
+
+KafkaRaftClientTest > testPurgatoryFetchCompletedByFollowerTransition() PASSED
+
+KafkaRaftClientTest > testGracefulShutdownSingleMemberQuorum() PASSED
+
+KafkaRaftClientTest > testAppendFailedWithRecordBatchTooLargeException() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchRequestAtLogStartOffsetWithValidEpoch() PASSED
+
+RecordsIteratorTest > testFileRecords PASSED
+
+KafkaRaftClientTest > testLeaderIgnoreVoteRequestOnSameEpoch() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotRequestWithOlderEpoch() PASSED
+
+KafkaRaftClientTest > testChannelWokenUpIfLingerTimeoutReachedWithoutAppend() PASSED
+
+KafkaRaftClientTest > testInitializeAsFollowerNonEmptyLog() PASSED
+
+KafkaRaftClientTest > testClusterAuthorizationFailedInVote() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchRequestAtLogStartOffsetWithInvalidEpoch() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotRequestAsFollower() PASSED
+
+KafkaRaftClientTest > testResignWillCompleteFetchPurgatory() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchRequestWithLargerLastFetchedEpoch() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotRequestAsLeader() PASSED
+
+KafkaRaftClientTest > testEndQuorumEpochSentBasedOnFetchOffset() PASSED
+
+KafkaRaftClientTest > testInvalidVoteRequest() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotResponseFromNewerEpochLeader() PASSED
+
+KafkaRaftClientSnapshotTest > testFollowerListenerNotified() PASSED
+
+KafkaRaftClientTest > testEndQuorumIgnoredAsLeaderIfOlderEpoch() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotResponseMissingSnapshot() PASSED
+
+RecordsIteratorTest > testMemoryRecords PASSED
+
+KafkaRaftClientTest > testClusterAuthorizationFailedInEndQuorumEpoch() PASSED
+
+KafkaRaftClientTest > testFetchResponseIgnoredAfterBecomingCandidate() PASSED
+
+KafkaRaftClientSnapshotTest > testSecondListenerNotified() PASSED
+
+KafkaRaftClientTest > testAppendFailedWithFencedEpoch() PASSED
+
+KafkaRaftClientTest > testInitializeAsFollowerEmptyLog() PASSED
+
+KafkaRaftClientTest > testGrantVotesFromHigherEpochAfterResigningCandidacy() PASSED
+
+KafkaRaftClientTest > testInitializeObserverNoPreviousState() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchResponseWithInvalidSnapshotId() PASSED
+
+KafkaRaftClientTest > testInitializeAsResignedLeaderFromStateStore() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotRequestMissingSnapshot() PASSED
+
+KafkaRaftClientTest > testVoteRequestTimeout() PASSED
+
+KafkaRaftClientSnapshotTest > testLeaderListenerNotified() PASSED
+
+KafkaRaftClientTest > testDescribeQuorum() PASSED
+
+KafkaRaftClientTest > testObserverLeaderRediscoveryAfterBrokerNotAvailableError() PASSED
+
+KafkaRaftClientTest > testCandidateIgnoreVoteRequestOnSameEpoch() PASSED
+
+KafkaRaftClientTest > testHandleBeginQuorumEpochAfterUserInitiatedResign() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotResponseWithInvalidId() PASSED
+
+KafkaRaftClientTest > testVoterBecomeCandidateAfterFetchTimeout() PASSED
+
+KafkaRaftClientSnapshotTest > testFetchSnapshotRequestWithInvalidPosition() PASSED
+
+KafkaRaftClientTest > testLeaderGracefulShutdownTimeout() PASSED
+
+KafkaRaftClientTest > testEndQuorumEpochRequestClusterIdValidation() PASSED
+
+KafkaRaftClientTest > testElectionTimeoutAfterUserInitiatedResign() PASSED
+
+KafkaRaftClientTest > testObserverFetchWithNoLocalId() PASSED
+
+KafkaRaftClientTest > testAppendFailedWithNotLeaderException() PASSED
+
+KafkaRaftClientTest > testEndQuorumIgnoredAsCandidateIfOlderEpoch() PASSED
+
+KafkaRaftClientTest > testRetryElection() PASSED
+
+KafkaRaftClientTest > testGrantVotesFromHigherEpochAfterResigningLeadership() PASSED
+
+KafkaRaftClientTest > testHandleInvalidVoteRequestWithOlderEpoch() PASSED
+
+KafkaRaftClientTest > testFollowerGracefulShutdown() PASSED
+
+KafkaRaftClientTest > testLateRegisteredListenerCatchesUp() PASSED
+
+KafkaRaftClientTest > testHandleClaimFiresImmediatelyOnEmptyLog() PASSED
+
+KafkaRaftClientTest > testInitializeAsCandidateAndBecomeLeaderQuorumOfThree() PASSED
+
+KafkaRaftClientTest > testAccumulatorClearedAfterBecomingUnattached() PASSED
+
+KafkaRaftClientTest > testRejectVotesFromSameEpochAfterResigningCandidacy() PASSED
+
+KafkaRaftClientTest > testAccumulatorClearedAfterBecomingFollower() PASSED
+
+KafkaRaftClientTest > testClusterAuthorizationFailedInFetch() PASSED
+
+KafkaRaftClientTest > testInitializeSingleMemberQuorum() PASSED
+
+KafkaRaftClientTest > testHandleVoteRequestAsFollowerWithVotedCandidate() PASSED
+
+KafkaRaftClientTest > testLeaderAppendSingleMemberQuorum() PASSED
+
+KafkaRaftClientTest > testHandleBeginQuorumResponse() PASSED
+
+KafkaRaftClientTest > testAccumulatorClearedAfterBecomingVoted() PASSED
+
+KafkaRaftClientTest > testMetrics() PASSED
+
+KafkaRaftClientTest > testAppendFailedWithBufferAllocationException() PASSED
+
+KafkaRaftClientTest > testListenerCommitCallbackAfterLeaderWrite() PASSED
+
+KafkaRaftClientTest > testHandleCommitCallbackFiresInCandidateState() PASSED
+
+KafkaRaftClientTest > testHandleBeginQuorumRequest() PASSED
+
+KafkaRaftClientTest > testEndQuorumEpochRetriesWhileResigned() PASSED
+
+KafkaRaftClientTest > testGrantVotesWhenShuttingDown() PASSED
+
+KafkaRaftClientTest > testChannelWokenUpIfLingerTimeoutReachedDuringAppend() PASSED
+
+KafkaRaftClientTest > testLeaderGracefulShutdown() PASSED
+
+KafkaRaftClientTest > testHandleInvalidVoteRequestAsObserver() PASSED
+
+KafkaRaftClientTest > testResignInOlderEpochIgnored() PASSED
+
+KafkaRaftClientTest > testInitializeAsLeaderFromStateStoreSingleMemberQuorum() PASSED
+
+KafkaRaftClientTest > testVoteRequestClusterIdValidation() PASSED
+
+KafkaRaftClientTest > testHandleVoteRequestAsFollowerWithElectedLeader() PASSED
+
+KafkaRaftClientTest > testObserverSendDiscoveryFetchAfterFetchTimeout() PASSED
+
+KafkaRaftClientTest > testEmptyRecordSetInFetchResponse() PASSED
+
+KafkaRaftClientTest > testPurgatoryFetchTimeout() PASSED
+
+KafkaRaftClientTest > testFetchResponseIgnoredAfterBecomingFollowerOfDifferentLeader() PASSED
+
+KafkaRaftClientTest > testVoterOnlyRequestValidation() PASSED
+
+KafkaRaftClientTest > testInitializeAsResignedAndBecomeCandidate() PASSED
+
+KafkaRaftClientTest > testReregistrationChangesListenerContext() PASSED
+
+KafkaRaftClientTest > testCannotResignIfObserver() PASSED
+
+KafkaRaftClientTest > testObserverGracefulShutdown() PASSED
+
+KafkaRaftClientTest > testInitializeAsCandidateAndBecomeLeader() PASSED
+
+KafkaRaftClientTest > testHandleCommitCallbackFiresAfterFollowerHighWatermarkAdvances() PASSED
+
+KafkaRaftClientTest > testCannotResignWithLargerEpochThanCurrentEpoch() PASSED
+
+KafkaRaftClientTest > testFollowerLogReconciliation() PASSED
+
+KafkaRaftClientTest > testFetchShouldBeTreatedAsLeaderAcknowledgement() PASSED
+
+KafkaRaftClientTest > testFetchRequestClusterIdValidation() PASSED
+
+KafkaRaftClientTest > testCannotResignIfNotLeader() PASSED
+
+KafkaRaftClientTest > testHandleValidVoteRequestAsFollower() PASSED
+
+KafkaRaftClientTest > testObserverLeaderRediscoveryAfterRequestTimeout() PASSED
+
+KafkaRaftClientTest > testBeginQuorumEpochRequestClusterIdValidation() PASSED
+
+KafkaRaftClientTest > testHandleEndQuorumRequestWithLowerPriorityToBecomeLeader() PASSED
+
+RaftEventSimulationTest > canMakeProgressIfMajorityIsReachable PASSED
+
+RaftEventSimulationTest > canElectNewLeaderAfterOldLeaderFailure PASSED
+
+RaftEventSimulationTest > canElectNewLeaderAfterOldLeaderPartitionedAway PASSED
+
+RaftEventSimulationTest > canMakeProgressAfterBackToBackLeaderFailures PASSED
+
+RaftEventSimulationTest > canRecoverFromSingleNodeCommittedDataLoss PASSED
+
+RaftEventSimulationTest > canRecoverAfterAllNodesKilled PASSED
+
+RaftEventSimulationTest > canElectInitialLeader PASSED
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 8.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+See https://docs.gradle.org/7.1.1/userguide/command_line_interface.html#sec:command_line_warnings
+
+BUILD SUCCESSFUL in 40s
+21 actionable tasks: 21 executed

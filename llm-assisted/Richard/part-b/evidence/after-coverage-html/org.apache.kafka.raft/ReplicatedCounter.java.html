@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReplicatedCounter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft</a> &gt; <span class="el_source">ReplicatedCounter.java</span></div><h1>ReplicatedCounter.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft;
+
+import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.raft.errors.NotLeaderException;
+import org.apache.kafka.snapshot.SnapshotReader;
+import org.apache.kafka.snapshot.SnapshotWriter;
+import org.slf4j.Logger;
+
+import java.util.Optional;
+import java.util.OptionalInt;
+
+import static java.util.Collections.singletonList;
+
+public class ReplicatedCounter implements RaftClient.Listener&lt;Integer&gt; {
+    private final int nodeId;
+    private final Logger log;
+    private final RaftClient&lt;Integer&gt; client;
+<span class="fc" id="L35">    private final int snapshotDelayInRecords = 10;</span>
+
+<span class="fc" id="L37">    private int committed = 0;</span>
+<span class="fc" id="L38">    private int uncommitted = 0;</span>
+<span class="fc" id="L39">    private OptionalInt claimedEpoch = OptionalInt.empty();</span>
+<span class="fc" id="L40">    private long lastOffsetSnapshotted = -1;</span>
+
+<span class="fc" id="L42">    private int handleSnapshotCalls = 0;</span>
+
+    public ReplicatedCounter(
+        int nodeId,
+        RaftClient&lt;Integer&gt; client,
+        LogContext logContext
+<span class="fc" id="L48">    ) {</span>
+<span class="fc" id="L49">        this.nodeId = nodeId;</span>
+<span class="fc" id="L50">        this.client = client;</span>
+<span class="fc" id="L51">        log = logContext.logger(ReplicatedCounter.class);</span>
+<span class="fc" id="L52">    }</span>
+
+    public synchronized boolean isWritable() {
+<span class="fc" id="L55">        return claimedEpoch.isPresent();</span>
+    }
+
+    public synchronized void increment() {
+<span class="pc bpc" id="L59" title="1 of 2 branches missed.">        if (!claimedEpoch.isPresent()) {</span>
+<span class="nc" id="L60">            throw new KafkaException(&quot;Counter is not currently writable&quot;);</span>
+        }
+
+<span class="fc" id="L63">        int epoch = claimedEpoch.getAsInt();</span>
+<span class="fc" id="L64">        uncommitted += 1;</span>
+        try {
+<span class="fc" id="L66">            long offset = client.scheduleAppend(epoch, singletonList(uncommitted));</span>
+<span class="fc" id="L67">            log.debug(&quot;Scheduled append of record {} with epoch {} at offset {}&quot;,</span>
+<span class="fc" id="L68">                uncommitted, epoch, offset);</span>
+<span class="nc" id="L69">        } catch (NotLeaderException e) {</span>
+<span class="nc" id="L70">            log.info(&quot;Appending failed, transition to resigned&quot;, e);</span>
+<span class="nc" id="L71">            client.resign(epoch);</span>
+<span class="fc" id="L72">        }</span>
+<span class="fc" id="L73">    }</span>
+
+    @Override
+    public synchronized void handleCommit(BatchReader&lt;Integer&gt; reader) {
+        try {
+<span class="fc" id="L78">            int initialCommitted = committed;</span>
+<span class="fc" id="L79">            long lastCommittedOffset = -1;</span>
+<span class="fc" id="L80">            int lastCommittedEpoch = 0;</span>
+<span class="fc" id="L81">            long lastCommittedTimestamp = -1;</span>
+
+<span class="fc bfc" id="L83" title="All 2 branches covered.">            while (reader.hasNext()) {</span>
+<span class="fc" id="L84">                Batch&lt;Integer&gt; batch = reader.next();</span>
+<span class="fc" id="L85">                log.debug(</span>
+                    &quot;Handle commit of batch with records {} at base offset {}&quot;,
+<span class="fc" id="L87">                    batch.records(),</span>
+<span class="fc" id="L88">                    batch.baseOffset()</span>
+                );
+<span class="fc bfc" id="L90" title="All 2 branches covered.">                for (Integer nextCommitted: batch.records()) {</span>
+<span class="pc bpc" id="L91" title="1 of 2 branches missed.">                    if (nextCommitted != committed + 1) {</span>
+<span class="nc" id="L92">                        throw new AssertionError(</span>
+<span class="nc" id="L93">                            String.format(</span>
+                                &quot;Expected next committed value to be %s, but instead found %s on node %s&quot;,
+<span class="nc" id="L95">                                committed + 1,</span>
+                                nextCommitted,
+<span class="nc" id="L97">                                nodeId</span>
+                            )
+                        );
+                    }
+<span class="fc" id="L101">                    committed = nextCommitted;</span>
+<span class="fc" id="L102">                }</span>
+
+<span class="fc" id="L104">                lastCommittedOffset = batch.lastOffset();</span>
+<span class="fc" id="L105">                lastCommittedEpoch = batch.epoch();</span>
+<span class="fc" id="L106">                lastCommittedTimestamp = batch.appendTimestamp();</span>
+<span class="fc" id="L107">            }</span>
+<span class="fc" id="L108">            log.debug(&quot;Counter incremented from {} to {}&quot;, initialCommitted, committed);</span>
+
+<span class="fc bfc" id="L110" title="All 2 branches covered.">            if (lastOffsetSnapshotted + snapshotDelayInRecords &lt; lastCommittedOffset) {</span>
+<span class="fc" id="L111">                log.debug(</span>
+                    &quot;Generating new snapshot with committed offset {} and epoch {} since the previoud snapshot includes {}&quot;,
+<span class="fc" id="L113">                    lastCommittedOffset,</span>
+<span class="fc" id="L114">                    lastCommittedEpoch,</span>
+<span class="fc" id="L115">                    lastOffsetSnapshotted</span>
+                );
+<span class="fc" id="L117">                Optional&lt;SnapshotWriter&lt;Integer&gt;&gt; snapshot = client.createSnapshot(</span>
+                    lastCommittedOffset,
+                    lastCommittedEpoch,
+                    lastCommittedTimestamp);
+<span class="fc bfc" id="L121" title="All 2 branches covered.">                if (snapshot.isPresent()) {</span>
+                    try {
+<span class="fc" id="L123">                        snapshot.get().append(singletonList(committed));</span>
+<span class="fc" id="L124">                        snapshot.get().freeze();</span>
+<span class="fc" id="L125">                        lastOffsetSnapshotted = lastCommittedOffset;</span>
+                    } finally {
+<span class="fc" id="L127">                        snapshot.get().close();</span>
+<span class="fc" id="L128">                    }</span>
+                } else {
+<span class="fc" id="L130">                    lastOffsetSnapshotted = lastCommittedOffset;</span>
+                }
+            }
+        } finally {
+<span class="fc" id="L134">            reader.close();</span>
+        }
+<span class="fc" id="L136">    }</span>
+
+    @Override
+    public synchronized void handleSnapshot(SnapshotReader&lt;Integer&gt; reader) {
+        try {
+<span class="nc" id="L141">            log.debug(&quot;Loading snapshot {}&quot;, reader.snapshotId());</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">            while (reader.hasNext()) {</span>
+<span class="nc" id="L143">                Batch&lt;Integer&gt; batch = reader.next();</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">                if (batch.records().size() != 1) {</span>
+<span class="nc" id="L145">                    throw new AssertionError(</span>
+<span class="nc" id="L146">                        String.format(</span>
+                            &quot;Expected the snapshot at %s to only contain one record %s&quot;,
+<span class="nc" id="L148">                            reader.snapshotId(),</span>
+<span class="nc" id="L149">                            batch.records()</span>
+                        )
+                    );
+                }
+
+<span class="nc bnc" id="L154" title="All 2 branches missed.">                for (Integer value : batch) {</span>
+<span class="nc" id="L155">                    log.debug(&quot;Setting value: {}&quot;, value);</span>
+<span class="nc" id="L156">                    committed = value;</span>
+<span class="nc" id="L157">                    uncommitted = value;</span>
+<span class="nc" id="L158">                }</span>
+<span class="nc" id="L159">            }</span>
+<span class="nc" id="L160">            lastOffsetSnapshotted = reader.lastContainedLogOffset();</span>
+<span class="nc" id="L161">            handleSnapshotCalls += 1;</span>
+<span class="nc" id="L162">            log.debug(&quot;Finished loading snapshot. Set value: {}&quot;, committed);</span>
+        } finally {
+<span class="nc" id="L164">            reader.close();</span>
+        }
+<span class="nc" id="L166">    }</span>
+
+    @Override
+    public synchronized void handleLeaderChange(LeaderAndEpoch newLeader) {
+<span class="fc bfc" id="L170" title="All 2 branches covered.">        if (newLeader.isLeader(nodeId)) {</span>
+<span class="fc" id="L171">            log.debug(&quot;Counter uncommitted value initialized to {} after claiming leadership in epoch {}&quot;,</span>
+<span class="fc" id="L172">                committed, newLeader);</span>
+<span class="fc" id="L173">            uncommitted = committed;</span>
+<span class="fc" id="L174">            claimedEpoch = OptionalInt.of(newLeader.epoch());</span>
+        } else {
+<span class="fc" id="L176">            log.debug(&quot;Counter uncommitted value reset after resigning leadership&quot;);</span>
+<span class="fc" id="L177">            uncommitted = -1;</span>
+<span class="fc" id="L178">            claimedEpoch = OptionalInt.empty();</span>
+        }
+<span class="fc" id="L180">        handleSnapshotCalls = 0;</span>
+<span class="fc" id="L181">    }</span>
+
+    /** Use handleSnapshotCalls to verify leader is never asked to load snapshot */
+    public int handleSnapshotCalls() {
+<span class="fc" id="L185">        return handleSnapshotCalls;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ValidOffsetAndEpoch.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft</a> &gt; <span class="el_source">ValidOffsetAndEpoch.java</span></div><h1>ValidOffsetAndEpoch.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft;
+
+import java.util.Objects;
+
+public final class ValidOffsetAndEpoch {
+    final private Kind kind;
+    final private OffsetAndEpoch offsetAndEpoch;
+
+<span class="fc" id="L25">    private ValidOffsetAndEpoch(Kind kind, OffsetAndEpoch offsetAndEpoch) {</span>
+<span class="fc" id="L26">        this.kind = kind;</span>
+<span class="fc" id="L27">        this.offsetAndEpoch = offsetAndEpoch;</span>
+<span class="fc" id="L28">    }</span>
+
+    public Kind kind() {
+<span class="fc" id="L31">        return kind;</span>
+    }
+
+    public OffsetAndEpoch offsetAndEpoch() {
+<span class="fc" id="L35">        return offsetAndEpoch;</span>
+    }
+
+<span class="fc" id="L38">    public enum Kind {</span>
+<span class="fc" id="L39">        DIVERGING, SNAPSHOT, VALID</span>
+    }
+
+    public static ValidOffsetAndEpoch diverging(OffsetAndEpoch offsetAndEpoch) {
+<span class="fc" id="L43">        return new ValidOffsetAndEpoch(Kind.DIVERGING, offsetAndEpoch);</span>
+    }
+
+    public static ValidOffsetAndEpoch snapshot(OffsetAndEpoch offsetAndEpoch) {
+<span class="fc" id="L47">        return new ValidOffsetAndEpoch(Kind.SNAPSHOT, offsetAndEpoch);</span>
+    }
+
+    public static ValidOffsetAndEpoch valid(OffsetAndEpoch offsetAndEpoch) {
+<span class="fc" id="L51">        return new ValidOffsetAndEpoch(Kind.VALID, offsetAndEpoch);</span>
+    }
+
+    public static ValidOffsetAndEpoch valid() {
+<span class="fc" id="L55">        return valid(new OffsetAndEpoch(-1, -1));</span>
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">        if (this == obj) return true;</span>
+<span class="pc bpc" id="L61" title="2 of 4 branches missed.">        if (obj == null || getClass() != obj.getClass()) return false;</span>
+<span class="fc" id="L62">        ValidOffsetAndEpoch that = (ValidOffsetAndEpoch) obj;</span>
+<span class="pc bpc" id="L63" title="1 of 2 branches missed.">        return kind == that.kind &amp;&amp;</span>
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">                offsetAndEpoch.equals(that.offsetAndEpoch);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L69">        return Objects.hash(kind, offsetAndEpoch);</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="fc" id="L74">        return String.format(</span>
+            &quot;ValidOffsetAndEpoch(kind=%s, offsetAndEpoch=%s)&quot;,
+            kind,
+            offsetAndEpoch
+        );
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

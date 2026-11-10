@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KafkaRaftMetrics.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft.internals</a> &gt; <span class="el_source">KafkaRaftMetrics.java</span></div><h1>KafkaRaftMetrics.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft.internals;
+
+import org.apache.kafka.common.MetricName;
+import org.apache.kafka.common.metrics.Gauge;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.metrics.Sensor;
+import org.apache.kafka.common.metrics.stats.Avg;
+import org.apache.kafka.common.metrics.stats.Max;
+import org.apache.kafka.common.metrics.stats.Rate;
+import org.apache.kafka.common.metrics.stats.WindowedSum;
+import org.apache.kafka.raft.OffsetAndEpoch;
+import org.apache.kafka.raft.QuorumState;
+
+import java.util.OptionalLong;
+import java.util.concurrent.TimeUnit;
+
+public class KafkaRaftMetrics implements AutoCloseable {
+
+    private final Metrics metrics;
+
+    private OffsetAndEpoch logEndOffset;
+    private int numUnknownVoterConnections;
+    private OptionalLong electionStartMs;
+    private OptionalLong pollStartMs;
+    private OptionalLong pollEndMs;
+
+    private final MetricName currentLeaderIdMetricName;
+    private final MetricName currentVotedIdMetricName;
+    private final MetricName currentEpochMetricName;
+    private final MetricName currentStateMetricName;
+    private final MetricName highWatermarkMetricName;
+    private final MetricName logEndOffsetMetricName;
+    private final MetricName logEndEpochMetricName;
+    private final MetricName numUnknownVoterConnectionsMetricName;
+    private final Sensor commitTimeSensor;
+    private final Sensor electionTimeSensor;
+    private final Sensor fetchRecordsSensor;
+    private final Sensor appendRecordsSensor;
+    private final Sensor pollIdleSensor;
+
+<span class="fc" id="L57">    public KafkaRaftMetrics(Metrics metrics, String metricGrpPrefix, QuorumState state) {</span>
+<span class="fc" id="L58">        this.metrics = metrics;</span>
+<span class="fc" id="L59">        String metricGroupName = metricGrpPrefix + &quot;-metrics&quot;;</span>
+
+<span class="fc" id="L61">        this.pollStartMs = OptionalLong.empty();</span>
+<span class="fc" id="L62">        this.pollEndMs = OptionalLong.empty();</span>
+<span class="fc" id="L63">        this.electionStartMs = OptionalLong.empty();</span>
+<span class="fc" id="L64">        this.numUnknownVoterConnections = 0;</span>
+<span class="fc" id="L65">        this.logEndOffset = new OffsetAndEpoch(0L, 0);</span>
+
+<span class="fc" id="L67">        this.currentStateMetricName = metrics.metricName(&quot;current-state&quot;, metricGroupName, &quot;The current state of this member; possible values are leader, candidate, voted, follower, unattached&quot;);</span>
+<span class="fc" id="L68">        Gauge&lt;String&gt; stateProvider = (mConfig, currentTimeMs) -&gt; {</span>
+<span class="fc bfc" id="L69" title="All 2 branches covered.">            if (state.isLeader()) {</span>
+<span class="fc" id="L70">                return &quot;leader&quot;;</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">            } else if (state.isCandidate()) {</span>
+<span class="fc" id="L72">                return &quot;candidate&quot;;</span>
+<span class="fc bfc" id="L73" title="All 2 branches covered.">            } else if (state.isVoted()) {</span>
+<span class="fc" id="L74">                return &quot;voted&quot;;</span>
+<span class="fc bfc" id="L75" title="All 2 branches covered.">            } else if (state.isFollower()) {</span>
+<span class="fc" id="L76">                return &quot;follower&quot;;</span>
+            } else {
+<span class="fc" id="L78">                return &quot;unattached&quot;;</span>
+            }
+        };
+<span class="fc" id="L81">        metrics.addMetric(this.currentStateMetricName, null, stateProvider);</span>
+
+<span class="fc" id="L83">        this.currentLeaderIdMetricName = metrics.metricName(&quot;current-leader&quot;, metricGroupName, &quot;The current quorum leader's id; -1 indicates unknown&quot;);</span>
+<span class="fc" id="L84">        metrics.addMetric(this.currentLeaderIdMetricName, (mConfig, currentTimeMs) -&gt; state.leaderId().orElse(-1));</span>
+
+<span class="fc" id="L86">        this.currentVotedIdMetricName = metrics.metricName(&quot;current-vote&quot;, metricGroupName, &quot;The current voted leader's id; -1 indicates not voted for anyone&quot;);</span>
+<span class="fc" id="L87">        metrics.addMetric(this.currentVotedIdMetricName, (mConfig, currentTimeMs) -&gt; {</span>
+<span class="fc bfc" id="L88" title="All 4 branches covered.">            if (state.isLeader() || state.isCandidate()) {</span>
+<span class="fc" id="L89">                return state.localIdOrThrow();</span>
+<span class="fc bfc" id="L90" title="All 2 branches covered.">            } else if (state.isVoted()) {</span>
+<span class="fc" id="L91">                return state.votedStateOrThrow().votedId();</span>
+            } else {
+<span class="fc" id="L93">                return -1;</span>
+            }
+        });
+
+<span class="fc" id="L97">        this.currentEpochMetricName = metrics.metricName(&quot;current-epoch&quot;, metricGroupName, &quot;The current quorum epoch.&quot;);</span>
+<span class="fc" id="L98">        metrics.addMetric(this.currentEpochMetricName, (mConfig, currentTimeMs) -&gt; state.epoch());</span>
+
+<span class="fc" id="L100">        this.highWatermarkMetricName = metrics.metricName(&quot;high-watermark&quot;, metricGroupName, &quot;The high watermark maintained on this member; -1 if it is unknown&quot;);</span>
+<span class="fc" id="L101">        metrics.addMetric(this.highWatermarkMetricName, (mConfig, currentTimeMs) -&gt; state.highWatermark().map(hw -&gt; hw.offset).orElse(-1L));</span>
+
+<span class="fc" id="L103">        this.logEndOffsetMetricName = metrics.metricName(&quot;log-end-offset&quot;, metricGroupName, &quot;The current raft log end offset.&quot;);</span>
+<span class="fc" id="L104">        metrics.addMetric(this.logEndOffsetMetricName, (mConfig, currentTimeMs) -&gt; logEndOffset.offset);</span>
+
+<span class="fc" id="L106">        this.logEndEpochMetricName = metrics.metricName(&quot;log-end-epoch&quot;, metricGroupName, &quot;The current raft log end epoch.&quot;);</span>
+<span class="fc" id="L107">        metrics.addMetric(this.logEndEpochMetricName, (mConfig, currentTimeMs) -&gt; logEndOffset.epoch);</span>
+
+<span class="fc" id="L109">        this.numUnknownVoterConnectionsMetricName = metrics.metricName(&quot;number-unknown-voter-connections&quot;, metricGroupName, &quot;The number of voter connections recognized at this member.&quot;);</span>
+<span class="fc" id="L110">        metrics.addMetric(this.numUnknownVoterConnectionsMetricName, (mConfig, currentTimeMs) -&gt; numUnknownVoterConnections);</span>
+
+<span class="fc" id="L112">        this.commitTimeSensor = metrics.sensor(&quot;commit-latency&quot;);</span>
+<span class="fc" id="L113">        this.commitTimeSensor.add(metrics.metricName(&quot;commit-latency-avg&quot;, metricGroupName,</span>
+                &quot;The average time in milliseconds to commit an entry in the raft log.&quot;), new Avg());
+<span class="fc" id="L115">        this.commitTimeSensor.add(metrics.metricName(&quot;commit-latency-max&quot;, metricGroupName,</span>
+                &quot;The maximum time in milliseconds to commit an entry in the raft log.&quot;), new Max());
+
+<span class="fc" id="L118">        this.electionTimeSensor = metrics.sensor(&quot;election-latency&quot;);</span>
+<span class="fc" id="L119">        this.electionTimeSensor.add(metrics.metricName(&quot;election-latency-avg&quot;, metricGroupName,</span>
+                &quot;The average time in milliseconds to elect a new leader.&quot;), new Avg());
+<span class="fc" id="L121">        this.electionTimeSensor.add(metrics.metricName(&quot;election-latency-max&quot;, metricGroupName,</span>
+                &quot;The maximum time in milliseconds to elect a new leader.&quot;), new Max());
+
+<span class="fc" id="L124">        this.fetchRecordsSensor = metrics.sensor(&quot;fetch-records&quot;);</span>
+<span class="fc" id="L125">        this.fetchRecordsSensor.add(metrics.metricName(&quot;fetch-records-rate&quot;, metricGroupName,</span>
+                &quot;The average number of records fetched from the leader of the raft quorum.&quot;),
+                new Rate(TimeUnit.SECONDS, new WindowedSum()));
+
+<span class="fc" id="L129">        this.appendRecordsSensor = metrics.sensor(&quot;append-records&quot;);</span>
+<span class="fc" id="L130">        this.appendRecordsSensor.add(metrics.metricName(&quot;append-records-rate&quot;, metricGroupName,</span>
+                &quot;The average number of records appended per sec as the leader of the raft quorum.&quot;),
+                new Rate(TimeUnit.SECONDS, new WindowedSum()));
+
+<span class="fc" id="L134">        this.pollIdleSensor = metrics.sensor(&quot;poll-idle-ratio&quot;);</span>
+<span class="fc" id="L135">        this.pollIdleSensor.add(metrics.metricName(&quot;poll-idle-ratio-avg&quot;,</span>
+                metricGroupName,
+                &quot;The average fraction of time the client's poll() is idle as opposed to waiting for the user code to process records.&quot;),
+                new Avg());
+<span class="fc" id="L139">    }</span>
+
+    public void updatePollStart(long currentTimeMs) {
+<span class="pc bpc" id="L142" title="1 of 4 branches missed.">        if (pollEndMs.isPresent() &amp;&amp; pollStartMs.isPresent()) {</span>
+<span class="fc" id="L143">            long pollTimeMs = Math.max(pollEndMs.getAsLong() - pollStartMs.getAsLong(), 0L);</span>
+<span class="fc" id="L144">            long totalTimeMs = Math.max(currentTimeMs - pollStartMs.getAsLong(), 1L);</span>
+<span class="fc" id="L145">            this.pollIdleSensor.record(pollTimeMs / (double) totalTimeMs, currentTimeMs);</span>
+        }
+
+<span class="fc" id="L148">        this.pollStartMs = OptionalLong.of(currentTimeMs);</span>
+<span class="fc" id="L149">        this.pollEndMs = OptionalLong.empty();</span>
+<span class="fc" id="L150">    }</span>
+
+    public void updatePollEnd(long currentTimeMs) {
+<span class="fc" id="L153">        this.pollEndMs = OptionalLong.of(currentTimeMs);</span>
+<span class="fc" id="L154">    }</span>
+
+    public void updateLogEnd(OffsetAndEpoch logEndOffset) {
+<span class="fc" id="L157">        this.logEndOffset = logEndOffset;</span>
+<span class="fc" id="L158">    }</span>
+
+    public void updateNumUnknownVoterConnections(int numUnknownVoterConnections) {
+<span class="fc" id="L161">        this.numUnknownVoterConnections = numUnknownVoterConnections;</span>
+<span class="fc" id="L162">    }</span>
+
+    public void updateAppendRecords(long numRecords) {
+<span class="fc" id="L165">        appendRecordsSensor.record(numRecords);</span>
+<span class="fc" id="L166">    }</span>
+
+    public void updateFetchedRecords(long numRecords) {
+<span class="fc" id="L169">        fetchRecordsSensor.record(numRecords);</span>
+<span class="fc" id="L170">    }</span>
+
+    public void updateCommitLatency(double latencyMs, long currentTimeMs) {
+<span class="fc" id="L173">        commitTimeSensor.record(latencyMs, currentTimeMs);</span>
+<span class="fc" id="L174">    }</span>
+
+    public void updateElectionStartMs(long currentTimeMs) {
+<span class="fc" id="L177">        electionStartMs = OptionalLong.of(currentTimeMs);</span>
+<span class="fc" id="L178">    }</span>
+
+    public void maybeUpdateElectionLatency(long currentTimeMs) {
+<span class="fc bfc" id="L181" title="All 2 branches covered.">        if (electionStartMs.isPresent()) {</span>
+<span class="fc" id="L182">            electionTimeSensor.record(currentTimeMs - electionStartMs.getAsLong(), currentTimeMs);</span>
+<span class="fc" id="L183">            electionStartMs = OptionalLong.empty();</span>
+        }
+<span class="fc" id="L185">    }</span>
+
+    @Override
+    public void close() {
+<span class="fc" id="L189">        metrics.removeMetric(currentLeaderIdMetricName);</span>
+<span class="fc" id="L190">        metrics.removeMetric(currentVotedIdMetricName);</span>
+<span class="fc" id="L191">        metrics.removeMetric(currentEpochMetricName);</span>
+<span class="fc" id="L192">        metrics.removeMetric(currentStateMetricName);</span>
+<span class="fc" id="L193">        metrics.removeMetric(highWatermarkMetricName);</span>
+<span class="fc" id="L194">        metrics.removeMetric(logEndOffsetMetricName);</span>
+<span class="fc" id="L195">        metrics.removeMetric(logEndEpochMetricName);</span>
+<span class="fc" id="L196">        metrics.removeMetric(numUnknownVoterConnectionsMetricName);</span>
+
+<span class="fc" id="L198">        metrics.removeSensor(commitTimeSensor.name());</span>
+<span class="fc" id="L199">        metrics.removeSensor(electionTimeSensor.name());</span>
+<span class="fc" id="L200">        metrics.removeSensor(fetchRecordsSensor.name());</span>
+<span class="fc" id="L201">        metrics.removeSensor(appendRecordsSensor.name());</span>
+<span class="fc" id="L202">        metrics.removeSensor(pollIdleSensor.name());</span>
+<span class="fc" id="L203">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

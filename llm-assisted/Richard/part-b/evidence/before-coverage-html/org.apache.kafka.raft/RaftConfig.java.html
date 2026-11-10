@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RaftConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft</a> &gt; <span class="el_source">RaftConfig.java</span></div><h1>RaftConfig.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft;
+
+import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.config.AbstractConfig;
+import org.apache.kafka.common.config.ConfigDef;
+import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.utils.Utils;
+
+import java.net.InetSocketAddress;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * RaftConfig encapsulates configuration specific to the Raft quorum voter nodes.
+ * Specifically, this class parses the voter node endpoints into an AddressSpec
+ * for use with the KafkaRaftClient/KafkaNetworkChannel.
+ *
+ * If the voter endpoints are not known at startup, a non-routable address can be provided instead.
+ * For example: `1@0.0.0.0:0,2@0.0.0.0:0,3@0.0.0.0:0`
+ * This will assign an {@link UnknownAddressSpec} to the voter entries
+ *
+ * The default raft timeouts are relatively low compared to some other timeouts such as
+ * request.timeout.ms. This is part of a general design philosophy where we see changing
+ * the leader of a Raft cluster as a relatively quick operation. For example, the KIP-631
+ * controller should be able to transition from standby to active without reloading all of
+ * the metadata. The standby is a &quot;hot&quot; standby, not a &quot;cold&quot; one.
+ */
+public class RaftConfig {
+
+    private static final String QUORUM_PREFIX = &quot;controller.quorum.&quot;;
+
+    // Non-routable address represents an endpoint that does not resolve to any particular node
+<span class="fc" id="L55">    public static final InetSocketAddress NON_ROUTABLE_ADDRESS = new InetSocketAddress(&quot;0.0.0.0&quot;, 0);</span>
+<span class="fc" id="L56">    public static final UnknownAddressSpec UNKNOWN_ADDRESS_SPEC_INSTANCE = new UnknownAddressSpec();</span>
+
+    public static final String QUORUM_VOTERS_CONFIG = QUORUM_PREFIX + &quot;voters&quot;;
+    public static final String QUORUM_VOTERS_DOC = &quot;Map of id/endpoint information for &quot; +
+        &quot;the set of voters in a comma-separated list of `{id}@{host}:{port}` entries. &quot; +
+        &quot;For example: `1@localhost:9092,2@localhost:9093,3@localhost:9094`&quot;;
+<span class="fc" id="L62">    public static final List&lt;String&gt; DEFAULT_QUORUM_VOTERS = Collections.emptyList();</span>
+
+    public static final String QUORUM_ELECTION_TIMEOUT_MS_CONFIG = QUORUM_PREFIX + &quot;election.timeout.ms&quot;;
+    public static final String QUORUM_ELECTION_TIMEOUT_MS_DOC = &quot;Maximum time in milliseconds to wait &quot; +
+        &quot;without being able to fetch from the leader before triggering a new election&quot;;
+    public static final int DEFAULT_QUORUM_ELECTION_TIMEOUT_MS = 1_000;
+
+    public static final String QUORUM_FETCH_TIMEOUT_MS_CONFIG = QUORUM_PREFIX + &quot;fetch.timeout.ms&quot;;
+    public static final String QUORUM_FETCH_TIMEOUT_MS_DOC = &quot;Maximum time without a successful fetch from &quot; +
+        &quot;the current leader before becoming a candidate and triggering a election for voters; Maximum time without &quot; +
+        &quot;receiving fetch from a majority of the quorum before asking around to see if there's a new epoch for leader&quot;;
+    public static final int DEFAULT_QUORUM_FETCH_TIMEOUT_MS = 2_000;
+
+    public static final String QUORUM_ELECTION_BACKOFF_MAX_MS_CONFIG = QUORUM_PREFIX + &quot;election.backoff.max.ms&quot;;
+    public static final String QUORUM_ELECTION_BACKOFF_MAX_MS_DOC = &quot;Maximum time in milliseconds before starting new elections. &quot; +
+        &quot;This is used in the binary exponential backoff mechanism that helps prevent gridlocked elections&quot;;
+    public static final int DEFAULT_QUORUM_ELECTION_BACKOFF_MAX_MS = 1_000;
+
+    public static final String QUORUM_LINGER_MS_CONFIG = QUORUM_PREFIX + &quot;append.linger.ms&quot;;
+    public static final String QUORUM_LINGER_MS_DOC = &quot;The duration in milliseconds that the leader will &quot; +
+        &quot;wait for writes to accumulate before flushing them to disk.&quot;;
+    public static final int DEFAULT_QUORUM_LINGER_MS = 25;
+
+    public static final String QUORUM_REQUEST_TIMEOUT_MS_CONFIG = QUORUM_PREFIX +
+        CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG;
+    public static final String QUORUM_REQUEST_TIMEOUT_MS_DOC = CommonClientConfigs.REQUEST_TIMEOUT_MS_DOC;
+    public static final int DEFAULT_QUORUM_REQUEST_TIMEOUT_MS = 2_000;
+
+    public static final String QUORUM_RETRY_BACKOFF_MS_CONFIG = QUORUM_PREFIX +
+        CommonClientConfigs.RETRY_BACKOFF_MS_CONFIG;
+    public static final String QUORUM_RETRY_BACKOFF_MS_DOC = CommonClientConfigs.RETRY_BACKOFF_MS_DOC;
+    public static final int DEFAULT_QUORUM_RETRY_BACKOFF_MS = 20;
+
+    private final int requestTimeoutMs;
+    private final int retryBackoffMs;
+    private final int electionTimeoutMs;
+    private final int electionBackoffMaxMs;
+    private final int fetchTimeoutMs;
+    private final int appendLingerMs;
+    private final Map&lt;Integer, AddressSpec&gt; voterConnections;
+
+    public interface AddressSpec {
+    }
+
+    public static class InetAddressSpec implements AddressSpec {
+        public final InetSocketAddress address;
+
+<span class="fc" id="L109">        public InetAddressSpec(InetSocketAddress address) {</span>
+<span class="pc bpc" id="L110" title="2 of 4 branches missed.">            if (address == null || address.equals(NON_ROUTABLE_ADDRESS)) {</span>
+<span class="nc" id="L111">                throw new IllegalArgumentException(&quot;Invalid address: &quot; + address);</span>
+            }
+<span class="fc" id="L113">            this.address = address;</span>
+<span class="fc" id="L114">        }</span>
+
+        @Override
+        public int hashCode() {
+<span class="nc" id="L118">            return address.hashCode();</span>
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+<span class="nc bnc" id="L123" title="All 2 branches missed.">            if (this == obj) {</span>
+<span class="nc" id="L124">                return true;</span>
+            }
+
+<span class="nc bnc" id="L127" title="All 4 branches missed.">            if (obj == null || getClass() != obj.getClass()) {</span>
+<span class="nc" id="L128">                return false;</span>
+            }
+
+<span class="nc" id="L131">            final InetAddressSpec that = (InetAddressSpec) obj;</span>
+<span class="nc" id="L132">            return that.address.equals(address);</span>
+        }
+    }
+
+    public static class UnknownAddressSpec implements AddressSpec {
+        private UnknownAddressSpec() {
+        }
+    }
+
+    public RaftConfig(AbstractConfig abstractConfig) {
+<span class="nc" id="L142">        this(parseVoterConnections(abstractConfig.getList(QUORUM_VOTERS_CONFIG)),</span>
+<span class="nc" id="L143">            abstractConfig.getInt(QUORUM_REQUEST_TIMEOUT_MS_CONFIG),</span>
+<span class="nc" id="L144">            abstractConfig.getInt(QUORUM_RETRY_BACKOFF_MS_CONFIG),</span>
+<span class="nc" id="L145">            abstractConfig.getInt(QUORUM_ELECTION_TIMEOUT_MS_CONFIG),</span>
+<span class="nc" id="L146">            abstractConfig.getInt(QUORUM_ELECTION_BACKOFF_MAX_MS_CONFIG),</span>
+<span class="nc" id="L147">            abstractConfig.getInt(QUORUM_FETCH_TIMEOUT_MS_CONFIG),</span>
+<span class="nc" id="L148">            abstractConfig.getInt(QUORUM_LINGER_MS_CONFIG));</span>
+<span class="nc" id="L149">    }</span>
+
+    public RaftConfig(
+        Map&lt;Integer, AddressSpec&gt; voterConnections,
+        int requestTimeoutMs,
+        int retryBackoffMs,
+        int electionTimeoutMs,
+        int electionBackoffMaxMs,
+        int fetchTimeoutMs,
+        int appendLingerMs
+<span class="fc" id="L159">    ) {</span>
+<span class="fc" id="L160">        this.voterConnections = voterConnections;</span>
+<span class="fc" id="L161">        this.requestTimeoutMs = requestTimeoutMs;</span>
+<span class="fc" id="L162">        this.retryBackoffMs = retryBackoffMs;</span>
+<span class="fc" id="L163">        this.electionTimeoutMs = electionTimeoutMs;</span>
+<span class="fc" id="L164">        this.electionBackoffMaxMs = electionBackoffMaxMs;</span>
+<span class="fc" id="L165">        this.fetchTimeoutMs = fetchTimeoutMs;</span>
+<span class="fc" id="L166">        this.appendLingerMs = appendLingerMs;</span>
+<span class="fc" id="L167">    }</span>
+
+    public int requestTimeoutMs() {
+<span class="fc" id="L170">        return requestTimeoutMs;</span>
+    }
+
+    public int retryBackoffMs() {
+<span class="fc" id="L174">        return retryBackoffMs;</span>
+    }
+
+    public int electionTimeoutMs() {
+<span class="fc" id="L178">        return electionTimeoutMs;</span>
+    }
+
+    public int electionBackoffMaxMs() {
+<span class="fc" id="L182">        return electionBackoffMaxMs;</span>
+    }
+
+    public int fetchTimeoutMs() {
+<span class="fc" id="L186">        return fetchTimeoutMs;</span>
+    }
+
+    public int appendLingerMs() {
+<span class="fc" id="L190">        return appendLingerMs;</span>
+    }
+
+    public Set&lt;Integer&gt; quorumVoterIds() {
+<span class="fc" id="L194">        return quorumVoterConnections().keySet();</span>
+    }
+
+    public Map&lt;Integer, AddressSpec&gt; quorumVoterConnections() {
+<span class="fc" id="L198">        return voterConnections;</span>
+    }
+
+    private static Integer parseVoterId(String idString) {
+        try {
+<span class="nc" id="L203">            return Integer.parseInt(idString);</span>
+<span class="nc" id="L204">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L205">            throw new ConfigException(&quot;Failed to parse voter ID as an integer from &quot; + idString);</span>
+        }
+    }
+
+    public static Map&lt;Integer, AddressSpec&gt; parseVoterConnections(List&lt;String&gt; voterEntries) {
+<span class="nc" id="L210">        Map&lt;Integer, AddressSpec&gt; voterMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">        for (String voterMapEntry : voterEntries) {</span>
+<span class="nc" id="L212">            String[] idAndAddress = voterMapEntry.split(&quot;@&quot;);</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">            if (idAndAddress.length != 2) {</span>
+<span class="nc" id="L214">                throw new ConfigException(&quot;Invalid configuration value for &quot; + QUORUM_VOTERS_CONFIG</span>
+                    + &quot;. Each entry should be in the form `{id}@{host}:{port}`.&quot;);
+            }
+
+<span class="nc" id="L218">            Integer voterId = parseVoterId(idAndAddress[0]);</span>
+<span class="nc" id="L219">            String host = Utils.getHost(idAndAddress[1]);</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            if (host == null) {</span>
+<span class="nc" id="L221">                throw new ConfigException(&quot;Failed to parse host name from entry &quot; + voterMapEntry</span>
+                    + &quot; for the configuration &quot; + QUORUM_VOTERS_CONFIG
+                    + &quot;. Each entry should be in the form `{id}@{host}:{port}`.&quot;);
+            }
+
+<span class="nc" id="L226">            Integer port = Utils.getPort(idAndAddress[1]);</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">            if (port == null) {</span>
+<span class="nc" id="L228">                throw new ConfigException(&quot;Failed to parse host port from entry &quot; + voterMapEntry</span>
+                    + &quot; for the configuration &quot; + QUORUM_VOTERS_CONFIG
+                    + &quot;. Each entry should be in the form `{id}@{host}:{port}`.&quot;);
+            }
+
+<span class="nc" id="L233">            InetSocketAddress address = new InetSocketAddress(host, port);</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">            if (address.equals(NON_ROUTABLE_ADDRESS)) {</span>
+<span class="nc" id="L235">                voterMap.put(voterId, UNKNOWN_ADDRESS_SPEC_INSTANCE);</span>
+            } else {
+<span class="nc" id="L237">                voterMap.put(voterId, new InetAddressSpec(address));</span>
+            }
+<span class="nc" id="L239">        }</span>
+
+<span class="nc" id="L241">        return voterMap;</span>
+    }
+
+    public static List&lt;Node&gt; quorumVoterStringsToNodes(List&lt;String&gt; voters) {
+<span class="nc" id="L245">        return voterConnectionsToNodes(parseVoterConnections(voters));</span>
+    }
+
+    public static List&lt;Node&gt; voterConnectionsToNodes(Map&lt;Integer, RaftConfig.AddressSpec&gt; voterConnections) {
+<span class="nc" id="L249">        return voterConnections.entrySet().stream()</span>
+<span class="nc" id="L250">            .filter(Objects::nonNull)</span>
+<span class="nc" id="L251">            .filter(connection -&gt; connection.getValue() instanceof InetAddressSpec)</span>
+<span class="nc" id="L252">            .map(connection -&gt; {</span>
+<span class="nc" id="L253">                InetAddressSpec spec = (InetAddressSpec) connection.getValue();</span>
+<span class="nc" id="L254">                return new Node(connection.getKey(), spec.address.getHostName(), spec.address.getPort());</span>
+            })
+<span class="nc" id="L256">            .collect(Collectors.toList());</span>
+    }
+
+<span class="nc" id="L259">    public static class ControllerQuorumVotersValidator implements ConfigDef.Validator {</span>
+        @Override
+        public void ensureValid(String name, Object value) {
+<span class="nc bnc" id="L262" title="All 2 branches missed.">            if (value == null) {</span>
+<span class="nc" id="L263">                throw new ConfigException(name, null);</span>
+            }
+
+            @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L267">            List&lt;String&gt; voterStrings = (List) value;</span>
+
+            // Attempt to parse the connect strings
+<span class="nc" id="L270">            parseVoterConnections(voterStrings);</span>
+<span class="nc" id="L271">        }</span>
+
+        @Override
+        public String toString() {
+<span class="nc" id="L275">            return &quot;non-empty list&quot;;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

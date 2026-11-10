@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SnapshotWriter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.snapshot</a> &gt; <span class="el_source">SnapshotWriter.java</span></div><h1>SnapshotWriter.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.kafka.snapshot;
+
+import org.apache.kafka.common.memory.MemoryPool;
+import org.apache.kafka.common.record.CompressionType;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.raft.OffsetAndEpoch;
+import org.apache.kafka.server.common.serialization.RecordSerde;
+import org.apache.kafka.raft.internals.BatchAccumulator;
+import org.apache.kafka.raft.internals.BatchAccumulator.CompletedBatch;
+import org.apache.kafka.common.message.SnapshotHeaderRecord;
+import org.apache.kafka.common.message.SnapshotFooterRecord;
+import org.apache.kafka.common.record.ControlRecordUtils;
+
+import java.util.Optional;
+import java.util.List;
+import java.util.function.Supplier;
+
+/**
+ * A type for writing a snapshot for a given end offset and epoch.
+ *
+ * A snapshot writer can be used to append objects until freeze is called. When freeze is
+ * called the snapshot is validated and marked as immutable. After freeze is called any
+ * append will fail with an exception.
+ *
+ * It is assumed that the content of the snapshot represents all of the records for the
+ * topic partition from offset 0 up to but not including the end offset in the snapshot
+ * id.
+ *
+ * @see org.apache.kafka.raft.KafkaRaftClient#createSnapshot(long, int, long)
+ */
+final public class SnapshotWriter&lt;T&gt; implements AutoCloseable {
+    final private RawSnapshotWriter snapshot;
+    final private BatchAccumulator&lt;T&gt; accumulator;
+    final private Time time;
+    final private long lastContainedLogTimestamp;
+
+    private SnapshotWriter(
+        RawSnapshotWriter snapshot,
+        int maxBatchSize,
+        MemoryPool memoryPool,
+        Time time,
+        long lastContainedLogTimestamp,
+        CompressionType compressionType,
+        RecordSerde&lt;T&gt; serde
+<span class="fc" id="L62">    ) {</span>
+<span class="fc" id="L63">        this.snapshot = snapshot;</span>
+<span class="fc" id="L64">        this.time = time;</span>
+<span class="fc" id="L65">        this.lastContainedLogTimestamp = lastContainedLogTimestamp;</span>
+
+<span class="fc" id="L67">        this.accumulator = new BatchAccumulator&lt;&gt;(</span>
+<span class="fc" id="L68">            snapshot.snapshotId().epoch,</span>
+            0,
+            Integer.MAX_VALUE,
+            maxBatchSize,
+            memoryPool,
+            time,
+            compressionType,
+            serde
+        );
+<span class="fc" id="L77">    }</span>
+
+    /**
+     * Adds a {@link SnapshotHeaderRecord} to snapshot
+     *
+     * @throws IllegalStateException if the snapshot is not empty
+     */
+    private void initializeSnapshotWithHeader() {
+<span class="pc bpc" id="L85" title="1 of 2 branches missed.">        if (snapshot.sizeInBytes() != 0) {</span>
+<span class="nc" id="L86">            String message = String.format(</span>
+                &quot;Initializing writer with a non-empty snapshot: id = '%s'.&quot;,
+<span class="nc" id="L88">                snapshot.snapshotId()</span>
+            );
+<span class="nc" id="L90">            throw new IllegalStateException(message);</span>
+        }
+
+<span class="fc" id="L93">        SnapshotHeaderRecord headerRecord = new SnapshotHeaderRecord()</span>
+<span class="fc" id="L94">            .setVersion(ControlRecordUtils.SNAPSHOT_HEADER_HIGHEST_VERSION)</span>
+<span class="fc" id="L95">            .setLastContainedLogTimestamp(lastContainedLogTimestamp);</span>
+<span class="fc" id="L96">        accumulator.appendSnapshotHeaderMessage(headerRecord, time.milliseconds());</span>
+<span class="fc" id="L97">        accumulator.forceDrain();</span>
+<span class="fc" id="L98">    }</span>
+
+    /**
+     * Adds a {@link SnapshotFooterRecord} to the snapshot
+     *
+     * No more records should be appended to the snapshot after calling this method
+     */
+    private void finalizeSnapshotWithFooter() {
+<span class="fc" id="L106">        SnapshotFooterRecord footerRecord = new SnapshotFooterRecord()</span>
+<span class="fc" id="L107">            .setVersion(ControlRecordUtils.SNAPSHOT_FOOTER_HIGHEST_VERSION);</span>
+<span class="fc" id="L108">        accumulator.appendSnapshotFooterMessage(footerRecord, time.milliseconds());</span>
+<span class="fc" id="L109">        accumulator.forceDrain();</span>
+<span class="fc" id="L110">    }</span>
+
+    /**
+     * Create an instance of this class and initialize
+     * the underlying snapshot with {@link SnapshotHeaderRecord}
+     *
+     * @param snapshot a lambda to create the low level snapshot writer
+     * @param maxBatchSize the maximum size in byte for a batch
+     * @param memoryPool the memory pool for buffer allocation
+     * @param time the clock implementation
+     * @param lastContainedLogTimestamp The append time of the highest record contained in this snapshot
+     * @param compressionType the compression algorithm to use
+     * @param serde the record serialization and deserialization implementation
+     * @return {@link Optional}{@link SnapshotWriter}
+     */
+    public static &lt;T&gt; Optional&lt;SnapshotWriter&lt;T&gt;&gt; createWithHeader(
+        Supplier&lt;Optional&lt;RawSnapshotWriter&gt;&gt; supplier,
+        int maxBatchSize,
+        MemoryPool memoryPool,
+        Time snapshotTime,
+        long lastContainedLogTimestamp,
+        CompressionType compressionType,
+        RecordSerde&lt;T&gt; serde
+    ) {
+<span class="fc" id="L134">        Optional&lt;SnapshotWriter&lt;T&gt;&gt; writer = supplier.get().map(snapshot -&gt; {</span>
+<span class="fc" id="L135">            return new SnapshotWriter&lt;T&gt;(</span>
+                    snapshot,
+                    maxBatchSize,
+                    memoryPool,
+                    snapshotTime,
+                    lastContainedLogTimestamp,
+                    CompressionType.NONE,
+                    serde);
+        });
+<span class="fc" id="L144">        writer.ifPresent(SnapshotWriter::initializeSnapshotWithHeader);</span>
+<span class="fc" id="L145">        return writer;</span>
+    }
+
+    /**
+     * Returns the end offset and epoch for the snapshot.
+     */
+    public OffsetAndEpoch snapshotId() {
+<span class="fc" id="L152">        return snapshot.snapshotId();</span>
+    }
+
+    /**
+     * Returns the last log offset which is represented in the snapshot.
+     */
+    public long lastContainedLogOffset() {
+<span class="nc" id="L159">        return snapshot.snapshotId().offset - 1;</span>
+    }
+
+    /**
+     * Returns the epoch of the last log offset which is represented in the snapshot.
+     */
+    public int lastContainedLogEpoch() {
+<span class="nc" id="L166">        return snapshot.snapshotId().epoch;</span>
+    }
+
+    /**
+     * Returns true if the snapshot has been frozen, otherwise false is returned.
+     *
+     * Modification to the snapshot are not allowed once it is frozen.
+     */
+    public boolean isFrozen() {
+<span class="nc" id="L175">        return snapshot.isFrozen();</span>
+    }
+
+    /**
+     * Appends a list of values to the snapshot.
+     *
+     * The list of record passed are guaranteed to get written together.
+     *
+     * @param records the list of records to append to the snapshot
+     * @throws IllegalStateException if append is called when isFrozen is true
+     */
+    public void append(List&lt;T&gt; records) {
+<span class="fc bfc" id="L187" title="All 2 branches covered.">        if (snapshot.isFrozen()) {</span>
+<span class="fc" id="L188">            String message = String.format(</span>
+                &quot;Append not supported. Snapshot is already frozen: id = '%s'.&quot;,
+<span class="fc" id="L190">                snapshot.snapshotId()</span>
+            );
+
+<span class="fc" id="L193">            throw new IllegalStateException(message);</span>
+        }
+
+<span class="fc" id="L196">        accumulator.append(snapshot.snapshotId().epoch, records);</span>
+
+<span class="fc bfc" id="L198" title="All 2 branches covered.">        if (accumulator.needsDrain(time.milliseconds())) {</span>
+<span class="fc" id="L199">            appendBatches(accumulator.drain());</span>
+        }
+<span class="fc" id="L201">    }</span>
+
+    /**
+     * Freezes the snapshot by flushing all pending writes and marking it as immutable.
+     *
+     * Also adds a {@link SnapshotFooterRecord} to the end of the snapshot
+     */
+    public void freeze() {
+<span class="fc" id="L209">        finalizeSnapshotWithFooter();</span>
+<span class="fc" id="L210">        appendBatches(accumulator.drain());</span>
+<span class="fc" id="L211">        snapshot.freeze();</span>
+<span class="fc" id="L212">        accumulator.close();</span>
+<span class="fc" id="L213">    }</span>
+
+    /**
+     * Closes the snapshot writer.
+     *
+     * If close is called without first calling freeze the snapshot is aborted.
+     */
+    public void close() {
+<span class="fc" id="L221">        snapshot.close();</span>
+<span class="fc" id="L222">        accumulator.close();</span>
+<span class="fc" id="L223">    }</span>
+
+    private void appendBatches(List&lt;CompletedBatch&lt;T&gt;&gt; batches) {
+        try {
+<span class="fc bfc" id="L227" title="All 2 branches covered.">            for (CompletedBatch&lt;T&gt; batch : batches) {</span>
+<span class="fc" id="L228">                snapshot.append(batch.data);</span>
+<span class="fc" id="L229">            }</span>
+        } finally {
+<span class="fc" id="L231">            batches.forEach(CompletedBatch::release);</span>
+        }
+<span class="fc" id="L233">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

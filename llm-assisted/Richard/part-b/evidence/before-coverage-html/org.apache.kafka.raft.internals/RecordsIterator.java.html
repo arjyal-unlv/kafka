@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RecordsIterator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft.internals</a> &gt; <span class="el_source">RecordsIterator.java</span></div><h1>RecordsIterator.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft.internals;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import org.apache.kafka.common.protocol.DataInputStreamReadable;
+import org.apache.kafka.common.protocol.Readable;
+import org.apache.kafka.common.record.DefaultRecordBatch;
+import org.apache.kafka.common.record.FileRecords;
+import org.apache.kafka.common.record.MemoryRecords;
+import org.apache.kafka.common.record.MutableRecordBatch;
+import org.apache.kafka.common.record.Records;
+import org.apache.kafka.common.utils.BufferSupplier;
+import org.apache.kafka.raft.Batch;
+import org.apache.kafka.server.common.serialization.RecordSerde;
+
+public final class RecordsIterator&lt;T&gt; implements Iterator&lt;Batch&lt;T&gt;&gt;, AutoCloseable {
+    private final Records records;
+    private final RecordSerde&lt;T&gt; serde;
+    private final BufferSupplier bufferSupplier;
+    private final int batchSize;
+
+<span class="fc" id="L45">    private Iterator&lt;MutableRecordBatch&gt; nextBatches = Collections.emptyIterator();</span>
+<span class="fc" id="L46">    private Optional&lt;Batch&lt;T&gt;&gt; nextBatch = Optional.empty();</span>
+    // Buffer used as the backing store for nextBatches if needed
+<span class="fc" id="L48">    private Optional&lt;ByteBuffer&gt; allocatedBuffer = Optional.empty();</span>
+    // Number of bytes from records read up to now
+<span class="fc" id="L50">    private int bytesRead = 0;</span>
+<span class="fc" id="L51">    private boolean isClosed = false;</span>
+
+    public RecordsIterator(
+        Records records,
+        RecordSerde&lt;T&gt; serde,
+        BufferSupplier bufferSupplier,
+        int batchSize
+<span class="fc" id="L58">    ) {</span>
+<span class="fc" id="L59">        this.records = records;</span>
+<span class="fc" id="L60">        this.serde = serde;</span>
+<span class="fc" id="L61">        this.bufferSupplier = bufferSupplier;</span>
+<span class="fc" id="L62">        this.batchSize = Math.max(batchSize, Records.HEADER_SIZE_UP_TO_MAGIC);</span>
+<span class="fc" id="L63">    }</span>
+
+    @Override
+    public boolean hasNext() {
+<span class="fc" id="L67">        ensureOpen();</span>
+
+<span class="fc bfc" id="L69" title="All 2 branches covered.">        if (!nextBatch.isPresent()) {</span>
+<span class="fc" id="L70">            nextBatch = nextBatch();</span>
+        }
+
+<span class="fc" id="L73">        return nextBatch.isPresent();</span>
+    }
+
+    @Override
+    public Batch&lt;T&gt; next() {
+<span class="fc bfc" id="L78" title="All 2 branches covered.">        if (!hasNext()) {</span>
+<span class="fc" id="L79">            throw new NoSuchElementException(&quot;Batch iterator doesn't have any more elements&quot;);</span>
+        }
+
+<span class="fc" id="L82">        Batch&lt;T&gt; batch = nextBatch.get();</span>
+<span class="fc" id="L83">        nextBatch = Optional.empty();</span>
+
+<span class="fc" id="L85">        return batch;</span>
+    }
+
+    @Override
+    public void close() {
+<span class="fc" id="L90">        isClosed = true;</span>
+<span class="fc" id="L91">        allocatedBuffer.ifPresent(bufferSupplier::release);</span>
+<span class="fc" id="L92">        allocatedBuffer = Optional.empty();</span>
+<span class="fc" id="L93">    }</span>
+
+    private void ensureOpen() {
+<span class="pc bpc" id="L96" title="1 of 2 branches missed.">        if (isClosed) {</span>
+<span class="nc" id="L97">            throw new IllegalStateException(&quot;Serde record batch itererator was closed&quot;);</span>
+        }
+<span class="fc" id="L99">    }</span>
+
+    private MemoryRecords readFileRecords(FileRecords fileRecords, ByteBuffer buffer) {
+<span class="fc" id="L102">        int start = buffer.position();</span>
+        try {
+<span class="fc" id="L104">            fileRecords.readInto(buffer, bytesRead);</span>
+<span class="nc" id="L105">        } catch (IOException e) {</span>
+<span class="nc" id="L106">            throw new UncheckedIOException(&quot;Failed to read records into memory&quot;, e);</span>
+<span class="fc" id="L107">        }</span>
+
+<span class="fc" id="L109">        bytesRead += buffer.limit() - start;</span>
+<span class="fc" id="L110">        return MemoryRecords.readableRecords(buffer.slice());</span>
+    }
+
+    private MemoryRecords createMemoryRecords(FileRecords fileRecords) {
+        final ByteBuffer buffer;
+<span class="fc bfc" id="L115" title="All 2 branches covered.">        if (allocatedBuffer.isPresent()) {</span>
+<span class="fc" id="L116">            buffer = allocatedBuffer.get();</span>
+<span class="fc" id="L117">            buffer.compact();</span>
+        } else {
+<span class="fc" id="L119">            buffer = bufferSupplier.get(Math.min(batchSize, records.sizeInBytes()));</span>
+<span class="fc" id="L120">            allocatedBuffer = Optional.of(buffer);</span>
+        }
+
+<span class="fc" id="L123">        MemoryRecords memoryRecords = readFileRecords(fileRecords, buffer);</span>
+
+        // firstBatchSize() is always non-null because the minimum buffer is HEADER_SIZE_UP_TO_MAGIC.
+<span class="fc bfc" id="L126" title="All 2 branches covered.">        if (memoryRecords.firstBatchSize() &lt;= buffer.remaining()) {</span>
+<span class="fc" id="L127">            return memoryRecords;</span>
+        } else {
+            // Not enough bytes read; create a bigger buffer
+<span class="fc" id="L130">            ByteBuffer newBuffer = bufferSupplier.get(memoryRecords.firstBatchSize());</span>
+<span class="fc" id="L131">            allocatedBuffer = Optional.of(newBuffer);</span>
+
+<span class="fc" id="L133">            newBuffer.put(buffer);</span>
+<span class="fc" id="L134">            bufferSupplier.release(buffer);</span>
+
+<span class="fc" id="L136">            return readFileRecords(fileRecords, newBuffer);</span>
+        }
+    }
+
+    private Iterator&lt;MutableRecordBatch&gt; nextBatches() {
+<span class="fc" id="L141">        int recordSize = records.sizeInBytes();</span>
+<span class="fc bfc" id="L142" title="All 2 branches covered.">        if (bytesRead &lt; recordSize) {</span>
+            final MemoryRecords memoryRecords;
+<span class="fc bfc" id="L144" title="All 2 branches covered.">            if (records instanceof MemoryRecords) {</span>
+<span class="fc" id="L145">                bytesRead = recordSize;</span>
+<span class="fc" id="L146">                memoryRecords = (MemoryRecords) records;</span>
+<span class="pc bpc" id="L147" title="1 of 2 branches missed.">            } else if (records instanceof FileRecords) {</span>
+<span class="fc" id="L148">                memoryRecords = createMemoryRecords((FileRecords) records);</span>
+            } else {
+<span class="nc" id="L150">                throw new IllegalStateException(String.format(&quot;Unexpected Records type %s&quot;, records.getClass()));</span>
+            }
+
+<span class="fc" id="L153">            return memoryRecords.batchIterator();</span>
+        }
+
+<span class="fc" id="L156">        return Collections.emptyIterator();</span>
+    }
+
+    private Optional&lt;Batch&lt;T&gt;&gt; nextBatch() {
+<span class="fc bfc" id="L160" title="All 2 branches covered.">        if (!nextBatches.hasNext()) {</span>
+<span class="fc" id="L161">            nextBatches = nextBatches();</span>
+        }
+
+<span class="fc bfc" id="L164" title="All 2 branches covered.">        if (nextBatches.hasNext()) {</span>
+<span class="fc" id="L165">            MutableRecordBatch nextBatch = nextBatches.next();</span>
+
+            // Update the buffer position to reflect the read batch
+<span class="fc" id="L168">            allocatedBuffer.ifPresent(buffer -&gt; buffer.position(buffer.position() + nextBatch.sizeInBytes()));</span>
+
+<span class="pc bpc" id="L170" title="1 of 2 branches missed.">            if (!(nextBatch instanceof DefaultRecordBatch)) {</span>
+<span class="nc" id="L171">                throw new IllegalStateException(</span>
+<span class="nc" id="L172">                    String.format(&quot;DefaultRecordBatch expected by record type was %s&quot;, nextBatch.getClass())</span>
+                );
+            }
+
+<span class="fc" id="L176">            return Optional.of(readBatch((DefaultRecordBatch) nextBatch));</span>
+        }
+
+<span class="fc" id="L179">        return Optional.empty();</span>
+    }
+
+    private Batch&lt;T&gt; readBatch(DefaultRecordBatch batch) {
+        final Batch&lt;T&gt; result;
+<span class="fc bfc" id="L184" title="All 2 branches covered.">        if (batch.isControlBatch()) {</span>
+<span class="fc" id="L185">            result = Batch.control(</span>
+<span class="fc" id="L186">                batch.baseOffset(),</span>
+<span class="fc" id="L187">                batch.partitionLeaderEpoch(),</span>
+<span class="fc" id="L188">                batch.maxTimestamp(),</span>
+<span class="fc" id="L189">                batch.sizeInBytes(),</span>
+<span class="fc" id="L190">                batch.lastOffset()</span>
+            );
+        } else {
+<span class="fc" id="L193">            Integer numRecords = batch.countOrNull();</span>
+<span class="pc bpc" id="L194" title="1 of 2 branches missed.">            if (numRecords == null) {</span>
+<span class="nc" id="L195">                throw new IllegalStateException(&quot;Expected a record count for the records batch&quot;);</span>
+            }
+
+<span class="fc" id="L198">            List&lt;T&gt; records = new ArrayList&lt;&gt;(numRecords);</span>
+<span class="fc" id="L199">            try (DataInputStreamReadable input = new DataInputStreamReadable(batch.recordInputStream(bufferSupplier))) {</span>
+<span class="fc bfc" id="L200" title="All 2 branches covered.">                for (int i = 0; i &lt; numRecords; i++) {</span>
+<span class="fc" id="L201">                    T record = readRecord(input);</span>
+<span class="fc" id="L202">                    records.add(record);</span>
+                }
+            }
+
+<span class="fc" id="L206">            result = Batch.data(</span>
+<span class="fc" id="L207">                batch.baseOffset(),</span>
+<span class="fc" id="L208">                batch.partitionLeaderEpoch(),</span>
+<span class="fc" id="L209">                batch.maxTimestamp(),</span>
+<span class="fc" id="L210">                batch.sizeInBytes(),</span>
+                records
+            );
+        }
+
+<span class="fc" id="L215">        return result;</span>
+    }
+
+    private T readRecord(Readable input) {
+        // Read size of body in bytes
+<span class="fc" id="L220">        input.readVarint();</span>
+
+        // Read unused attributes
+<span class="fc" id="L223">        input.readByte();</span>
+
+<span class="fc" id="L225">        long timestampDelta = input.readVarlong();</span>
+<span class="pc bpc" id="L226" title="1 of 2 branches missed.">        if (timestampDelta != 0) {</span>
+<span class="nc" id="L227">            throw new IllegalArgumentException();</span>
+        }
+
+        // Read offset delta
+<span class="fc" id="L231">        input.readVarint();</span>
+
+<span class="fc" id="L233">        int keySize = input.readVarint();</span>
+<span class="pc bpc" id="L234" title="1 of 2 branches missed.">        if (keySize != -1) {</span>
+<span class="nc" id="L235">            throw new IllegalArgumentException(&quot;Unexpected key size &quot; + keySize);</span>
+        }
+
+<span class="fc" id="L238">        int valueSize = input.readVarint();</span>
+<span class="pc bpc" id="L239" title="1 of 2 branches missed.">        if (valueSize &lt; 0) {</span>
+<span class="nc" id="L240">            throw new IllegalArgumentException();</span>
+        }
+
+<span class="fc" id="L243">        T record = serde.read(input, valueSize);</span>
+
+<span class="fc" id="L245">        int numHeaders = input.readVarint();</span>
+<span class="pc bpc" id="L246" title="1 of 2 branches missed.">        if (numHeaders != 0) {</span>
+<span class="nc" id="L247">            throw new IllegalArgumentException();</span>
+        }
+
+<span class="fc" id="L250">        return record;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>

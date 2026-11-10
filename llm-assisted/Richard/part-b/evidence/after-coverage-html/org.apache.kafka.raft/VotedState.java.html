@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VotedState.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">raft</a> &gt; <a href="index.source.html" class="el_package">org.apache.kafka.raft</a> &gt; <span class="el_source">VotedState.java</span></div><h1>VotedState.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the &quot;License&quot;); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.raft;
+
+import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Timer;
+import org.slf4j.Logger;
+
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.Set;
+
+/**
+ * The &quot;voted&quot; state is for voters who have cast their vote for a specific candidate.
+ * Once a vote has been cast, it is not possible for a voter to change its vote until a
+ * new election is started. If the election timeout expires before a new leader is elected,
+ * then the voter will become a candidate.
+ */
+public class VotedState implements EpochState {
+    private final int epoch;
+    private final int votedId;
+    private final Set&lt;Integer&gt; voters;
+    private final int electionTimeoutMs;
+    private final Timer electionTimer;
+    private final Optional&lt;LogOffsetMetadata&gt; highWatermark;
+    private final Logger log;
+
+    public VotedState(
+        Time time,
+        int epoch,
+        int votedId,
+        Set&lt;Integer&gt; voters,
+        Optional&lt;LogOffsetMetadata&gt; highWatermark,
+        int electionTimeoutMs,
+        LogContext logContext
+<span class="fc" id="L51">    ) {</span>
+<span class="fc" id="L52">        this.epoch = epoch;</span>
+<span class="fc" id="L53">        this.votedId = votedId;</span>
+<span class="fc" id="L54">        this.voters = voters;</span>
+<span class="fc" id="L55">        this.highWatermark = highWatermark;</span>
+<span class="fc" id="L56">        this.electionTimeoutMs = electionTimeoutMs;</span>
+<span class="fc" id="L57">        this.electionTimer = time.timer(electionTimeoutMs);</span>
+<span class="fc" id="L58">        this.log = logContext.logger(VotedState.class);</span>
+<span class="fc" id="L59">    }</span>
+
+    @Override
+    public ElectionState election() {
+<span class="fc" id="L63">        return new ElectionState(</span>
+            epoch,
+<span class="fc" id="L65">            OptionalInt.empty(),</span>
+<span class="fc" id="L66">            OptionalInt.of(votedId),</span>
+            voters
+        );
+    }
+
+    public int votedId() {
+<span class="fc" id="L72">        return votedId;</span>
+    }
+
+    @Override
+    public int epoch() {
+<span class="fc" id="L77">        return epoch;</span>
+    }
+
+    @Override
+    public String name() {
+<span class="nc" id="L82">        return &quot;Voted&quot;;</span>
+    }
+
+    public long remainingElectionTimeMs(long currentTimeMs) {
+<span class="fc" id="L86">        electionTimer.update(currentTimeMs);</span>
+<span class="fc" id="L87">        return electionTimer.remainingMs();</span>
+    }
+
+    public boolean hasElectionTimeoutExpired(long currentTimeMs) {
+<span class="fc" id="L91">        electionTimer.update(currentTimeMs);</span>
+<span class="fc" id="L92">        return electionTimer.isExpired();</span>
+    }
+
+    public void overrideElectionTimeout(long currentTimeMs, long timeoutMs) {
+<span class="nc" id="L96">        electionTimer.update(currentTimeMs);</span>
+<span class="nc" id="L97">        electionTimer.reset(timeoutMs);</span>
+<span class="nc" id="L98">    }</span>
+
+    @Override
+    public boolean canGrantVote(int candidateId, boolean isLogUpToDate) {
+<span class="fc bfc" id="L102" title="All 2 branches covered.">        if (votedId() == candidateId) {</span>
+<span class="fc" id="L103">            return true;</span>
+        }
+
+<span class="fc" id="L106">        log.debug(&quot;Rejecting vote request from candidate {} since we already have voted for &quot; +</span>
+<span class="fc" id="L107">            &quot;another candidate {} in epoch {}&quot;, candidateId, votedId(), epoch);</span>
+<span class="fc" id="L108">        return false;</span>
+    }
+
+    @Override
+    public Optional&lt;LogOffsetMetadata&gt; highWatermark() {
+<span class="fc" id="L113">        return highWatermark;</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="fc" id="L118">        return &quot;Voted(&quot; +</span>
+            &quot;epoch=&quot; + epoch +
+            &quot;, votedId=&quot; + votedId +
+            &quot;, voters=&quot; + voters +
+            &quot;, electionTimeoutMs=&quot; + electionTimeoutMs +
+            ')';
+    }
+
+    @Override
+<span class="fc" id="L127">    public void close() {}</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.7.202105040129</span></div></body></html>
