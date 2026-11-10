@@ -1,0 +1,20 @@
+# Verification of attempt-01 model output — PR #14088
+# date:    Tue Nov 10 10:22:16 PST 2026
+# branch:  llm-assisted-group01  baseline b66a8c827d
+# command: git apply --check llm-assisted/Shreem/part-a/evidence/attempt-01-model.patch
+# note:    the model's patch is byte-identical to the upstream diff (md5 c10b113628865a779aa9eb3469cc1dad)
+
+error: patch failed: clients/src/test/java/org/apache/kafka/clients/producer/internals/SenderTest.java:32
+error: clients/src/test/java/org/apache/kafka/clients/producer/internals/SenderTest.java: patch does not apply
+error: core/src/main/scala/kafka/log/UnifiedLog.scala: No such file or directory
+error: core/src/main/scala/kafka/server/AddPartitionsToTxnManager.scala: No such file or directory
+error: patch failed: core/src/main/scala/kafka/server/ReplicaManager.scala:732
+error: core/src/main/scala/kafka/server/ReplicaManager.scala: patch does not apply
+error: patch failed: core/src/test/scala/unit/kafka/cluster/PartitionTest.scala:24
+error: core/src/test/scala/unit/kafka/cluster/PartitionTest.scala: patch does not apply
+error: core/src/test/scala/unit/kafka/server/AddPartitionsToTxnManagerTest.scala: No such file or directory
+error: patch failed: core/src/test/scala/unit/kafka/server/ReplicaManagerTest.scala:2231
+error: core/src/test/scala/unit/kafka/server/ReplicaManagerTest.scala: patch does not apply
+
+# result: 7/7 files fail — 3 absent, 4 present but drifted.
+# the model stated it was CONFIDENT this would compile.
