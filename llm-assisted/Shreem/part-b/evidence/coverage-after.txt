@@ -1,0 +1,21 @@
+# Part B coverage AFTER adding the repaired LLM-generated test - PR #12244
+# branch pr-12244 @ 1597d78733, plus the single repaired test inserted temporarily
+# ./gradlew :clients:test --tests '*ConsumerCoordinatorTest*' -PenableTestCoverage=true --rerun-tasks
+# ./gradlew :clients:jacocoTestReport -PenableTestCoverage=true -x :clients:test
+# format: covered/total
+
+method                          INSTRUCTION      BRANCH     LINE
+----------------------------------------------------------------
+coordinatorUnknownAndUnready     9/11 ->  9/11   3/4 -> 3/4  1/1 -> 1/1
+commitOffsetsAsync              21/39 -> 26/39   2/4 -> 3/4  6/9 -> 7/9
+doCommitOffsetsAsync            17/20 -> 17/20   1/2 -> 1/2  4/4 -> 4/4
+
+# One test, one branch. The branch gained is the empty-offsets path added by 1597d78733,
+# which 0 of the 246 pre-existing tests reached. Nothing else moved, so the gain is
+# attributable to this test alone rather than to a general rise in module coverage.
+#
+# The 4th branch of commitOffsetsAsync remains uncovered: the false path of
+# coordinatorUnknownAndUnready. It was uncovered before this test and is not what the
+# test targets, so it is reported as a remaining gap rather than hidden.
+#
+# Test count: 246 -> 248 (the new test runs under both rebalance protocols).

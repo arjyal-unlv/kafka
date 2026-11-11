@@ -1,0 +1,18 @@
+# Part B regression baseline — PR #12244
+# date:    Tue Nov 10 15:35:54 PST 2026
+# branch:  pr-12244 at 1597d78733
+# command: ./gradlew :clients:test --tests '*ConsumerCoordinatorTest*'
+# JVM:     11.0.32.1 (JAVA_HOME=/opt/homebrew/opt/openjdk@11)
+
+BUILD SUCCESSFUL in 37s
+
+EagerConsumerCoordinatorTest         123 tests, 0 failures, 0 errors, 0 skipped
+CooperativeConsumerCoordinatorTest   123 tests, 0 failures, 0 errors, 0 skipped
+TOTAL                                246 tests, 0 failures
+
+The suite runs 123 @Test methods twice, once per rebalance protocol.
+
+# TEST-ADEQUACY GAP being targeted by Part B:
+# commitOffsetsAsync is referenced 14 times in the suite, but no test passes it an
+# empty offsets map. The empty-offsets local-completion path added by commit
+# 1597d78733 is therefore executed by 0 of these 246 tests.

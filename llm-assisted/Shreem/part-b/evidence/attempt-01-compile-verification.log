@@ -1,0 +1,38 @@
+# Part B attempt 01 — compile verification of LLM-generated tests
+# date:   Tue Nov 10 16:57:03 PST 2026
+# branch: pr-12244 @ 1597d78733
+# method: the 3 generated tests were pasted verbatim into
+#         clients/src/test/java/.../ConsumerCoordinatorTest.java and compiled.
+# command: ./gradlew :clients:compileTestJava
+
+clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java:3437: error: cannot find symbol
+  symbol:   method numSendRequests()
+  location: variable client of type MockClient
+clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java:3440: error: no suitable method found for assertTrue(int)
+clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java:3450: error: cannot find symbol
+  symbol:   method when(boolean)
+  location: class ConsumerCoordinatorTest
+clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java:3456: error: cannot find symbol
+  symbol:   method numSendRequests()
+  location: variable client of type MockClient
+clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java:3459: error: no suitable method found for assertTrue(int)
+clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java:3469: error: cannot find symbol
+  symbol:   method when(boolean)
+  location: class ConsumerCoordinatorTest
+clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java:3475: error: cannot find symbol
+  symbol:   method numSendRequests()
+  location: variable client of type MockClient
+clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java:3478: error: no suitable method found for assertTrue(int)
+8 errors
+
+# GENERATED: 3    COMPILING AS WRITTEN: 0
+#
+# Three distinct mistakes, each repeated:
+#   numSendRequests()  x3 - invented a MockClient method that does not exist
+#   assertTrue(int)    x3 - MockCommitCallback.invoked is an int counter, not a boolean
+#   when(boolean)      x2 - treated the real coordinator (built by buildCoordinator())
+#                           as a Mockito mock; the call evaluates to a plain boolean
+#
+# The fixture excerpt supplied in the prompt contained the correct field
+# (mockOffsetCommitCallback) and the model used it correctly. The failures are all
+# in API knowledge it was not given and did not ask for.

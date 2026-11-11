@@ -1,0 +1,47 @@
+commit 1597d78733fb5bc0f3b341658f12375d2d74b46c
+Author: ShreemUNLV <arjyal@unlv.nevada.edu>
+Date:   Tue Oct 27 10:19:28 2026 -0700
+
+    Manually adapt PR #12244 commit-path fix to 3.0-li (Category 4, full integration)
+
+diff --git a/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java b/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java
+index 87485cc4df..e9c2cb784b 100644
+--- a/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java
++++ b/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java
+@@ -68,6 +68,7 @@ import org.apache.kafka.common.utils.Utils;
+ import org.slf4j.Logger;
+ 
+ import java.nio.ByteBuffer;
++import java.time.Duration;
+ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.HashMap;
+@@ -961,10 +962,27 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
+         }
+     }
+ 
++    private boolean coordinatorUnknownAndUnready(Timer timer) {
++        return coordinatorUnknown() && !ensureCoordinatorReady(timer);
++    }
++
+     public void commitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, final OffsetCommitCallback callback) {
+         invokeCompletedOffsetCommitCallbacks();
+ 
+-        if (!coordinatorUnknown()) {
++        if (offsets.isEmpty()) {
++            // No need to check coordinator if offsets is empty since commit of empty offsets is completed locally.
++            doCommitOffsetsAsync(offsets, callback);
++        } else if (!coordinatorUnknownAndUnready(time.timer(Duration.ZERO))) {
++            // we need to make sure coordinator is ready before committing, since
++            // this is for async committing we do not try to block, but just try once to
++            // clear the previous discover-coordinator future, resend, or get responses;
++            // if the coordinator is not ready yet then we would just proceed and put that into the
++            // pending requests, and future poll calls would still try to complete them.
++            //
++            // the key here though is that we have to try sending the discover-coordinator if
++            // it's not known or ready, since this is the only place we can send such request
++            // under manual assignment (there we would not have heartbeat thread trying to auto-rediscover
++            // the coordinator).
+             doCommitOffsetsAsync(offsets, callback);
+         } else {
+             // we don't know the current coordinator, so try to find it and then send the commit

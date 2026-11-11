@@ -1,0 +1,11 @@
+# Part B coverage baseline - PR #12244, branch pr-12244 @ 1597d78733
+# ./gradlew :clients:test --tests '*ConsumerCoordinatorTest*' -PenableTestCoverage=true --rerun-tasks
+# ./gradlew :clients:jacocoTestReport -PenableTestCoverage=true -x :clients:test
+# format: covered/total
+
+coordinatorUnknownAndUnready     INST 9/11  BRAN 3/4  LINE 1/1
+commitOffsetsAsync               INST 21/39  BRAN 2/4  LINE 6/9
+doCommitOffsetsAsync             INST 17/20  BRAN 1/2  LINE 4/4
+
+# The 2 missed branches in commitOffsetsAsync are the empty-offsets path added by
+# 1597d78733 and its alternative. 0 of the 246 passing tests exercise them.
