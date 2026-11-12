@@ -1513,4 +1513,36 @@ public class KafkaProducerTest {
             CLIENT_IDS.add(configs.get(ProducerConfig.CLIENT_ID_CONFIG).toString());
         }
     }
+
+    @Test
+    public void testSendWithZeroBatchSizeCompletes() {
+        // PR #12752 (KAFKA-14303): batch.size = 0 is documented as "disable batching", which in
+        // practice must mean a batch size of 1. The adaptation in cc50555b92 clamps it with
+        // Math.max(1, ...) before it reaches the RecordAccumulator and the BufferPool.
+        // This test sends a record with a NULL KEY, which is the case the upstream report names.
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9000");
+        configs.put(ProducerConfig.BATCH_SIZE_CONFIG, "0");
+        configs.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "5000");
+
+        Time time = new MockTime();
+        MetadataResponse initialUpdateResponse = RequestTestUtils.metadataUpdateWith(1, singletonMap("topic", 1));
+        ProducerMetadata metadata = newMetadata(0, Long.MAX_VALUE);
+        MockClient client = new MockClient(time, metadata);
+        client.updateMetadata(initialUpdateResponse);
+
+        KafkaProducer<String, String> producer = kafkaProducer(configs, new StringSerializer(),
+                new StringSerializer(), metadata, client, null, time);
+        try {
+            Future<RecordMetadata> future = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                    Duration.ofSeconds(10),
+                    () -> producer.send(new ProducerRecord<>("topic", null, "value")),
+                    "send() with batch.size=0 and a null key did not return");
+            assertNotNull(future);
+        } finally {
+            // close(ZERO) so the test does not block on the pending send that MockClient
+            // will never acknowledge; this test is about send(), not about close().
+            producer.close(Duration.ZERO);
+        }
+    }
 }
