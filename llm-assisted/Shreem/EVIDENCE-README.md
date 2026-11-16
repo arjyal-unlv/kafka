@@ -29,4 +29,4 @@ into four blocks, and `Cat04-repatch-file-counting-finding.txt`, which records t
 file count omits Scala files and modify/delete conflicts.
 
 The LLM prompts, raw model responses, generated patches and verification logs are not here.
-They live under `llm-assisted/Shreem/` on this same branch.
+They live under `llm-assisted/Shreem/part-a/` and `part-b/` on this same branch.
