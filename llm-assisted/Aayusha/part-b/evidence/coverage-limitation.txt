@@ -1,0 +1,23 @@
+PR #12486 Part B coverage baseline limitation
+
+Focused baseline:
+BrokerMetadataSnapshotterTest
+- testCreateAndClose() PASSED
+- testCreateSnapshot() PASSED
+- testRecordListConsumer() PASSED
+- BUILD SUCCESSFUL
+
+Coverage attempt:
+Enabling Scoverage caused broader :core:unitTest execution.
+
+Result:
+2334 tests completed, 1 failed, 7 skipped.
+
+Because :core:unitTest failed, reportScoverage did not complete and
+build/scoverage was not generated.
+
+Interpretation:
+The coverage report could not be produced reliably for the focused PR scope.
+The targeted PR #12486 tests themselves passed. Test adequacy will therefore
+be evaluated using focused behavioral validation and generated-test behavior,
+rather than inventing or misreporting coverage values.

@@ -1,0 +1,69 @@
+diff --git a/core/src/test/scala/unit/kafka/server/metadata/BrokerMetadataSnapshotterTest.scala b/core/src/test/scala/unit/kafka/server/metadata/BrokerMetadataSnapshotterTest.scala
+index 904230cf17..fa4af0b48c 100644
+--- a/core/src/test/scala/unit/kafka/server/metadata/BrokerMetadataSnapshotterTest.scala
++++ b/core/src/test/scala/unit/kafka/server/metadata/BrokerMetadataSnapshotterTest.scala
+@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Test
+ 
+ import java.util
+ import java.util.Arrays.asList
++import scala.collection.JavaConverters._
+ 
+ class BrokerMetadataSnapshotterTest {
+   @Test
+@@ -145,4 +146,56 @@ class BrokerMetadataSnapshotterTest {
+       batches
+     )
+   }
++
++  @Test
++  def testRecordListConsumerMaxRecordsInBatch(): Unit = {
++    val batches = new util.ArrayList[util.List[ApiMessageAndVersion]]
++    val consumer = new RecordListConsumer(
++      1024,
++      (batch: util.List[ApiMessageAndVersion]) =>
++        batches.add(new util.ArrayList[ApiMessageAndVersion](batch))
++    )
++    val records = List.fill(1024)(
++      new ApiMessageAndVersion(new FenceBrokerRecord().setId(1).setEpoch(1), 0.toShort)
++    )
++    consumer.accept(records.asJava)
++    assertEquals(1, batches.size())
++    assertEquals(1024, batches.get(0).size())
++  }
++
++  @Test
++  def testRecordListConsumerMaxRecordsInBatchPlusOne(): Unit = {
++    val batches = new util.ArrayList[util.List[ApiMessageAndVersion]]
++    val consumer = new RecordListConsumer(
++      1024,
++      (batch: util.List[ApiMessageAndVersion]) =>
++        batches.add(new util.ArrayList[ApiMessageAndVersion](batch))
++    )
++    val records = List.fill(1025)(
++      new ApiMessageAndVersion(new FenceBrokerRecord().setId(1).setEpoch(1), 0.toShort)
++    )
++    consumer.accept(records.asJava)
++    assertEquals(2, batches.size())
++    assertEquals(1024, batches.get(0).size())
++    assertEquals(1, batches.get(1).size())
++  }
++
++  @Test
++  def testRecordListConsumerTwoMaxRecordsInBatchPlusOne(): Unit = {
++    val batches = new util.ArrayList[util.List[ApiMessageAndVersion]]
++    val consumer = new RecordListConsumer(
++      1024,
++      (batch: util.List[ApiMessageAndVersion]) =>
++        batches.add(new util.ArrayList[ApiMessageAndVersion](batch))
++    )
++    val records = List.fill(2049)(
++      new ApiMessageAndVersion(new FenceBrokerRecord().setId(1).setEpoch(1), 0.toShort)
++    )
++    consumer.accept(records.asJava)
++    assertEquals(3, batches.size())
++    assertEquals(1024, batches.get(0).size())
++    assertEquals(1024, batches.get(1).size())
++    assertEquals(1, batches.get(2).size())
++  }
++
+ }

@@ -1,0 +1,17 @@
+diff --git a/core/src/main/scala/kafka/server/metadata/BrokerMetadataSnapshotter.scala b/core/src/main/scala/kafka/server/metadata/BrokerMetadataSnapshotter.scala
+index 58e190817a..dcf0031ab1 100644
+--- a/core/src/main/scala/kafka/server/metadata/BrokerMetadataSnapshotter.scala
++++ b/core/src/main/scala/kafka/server/metadata/BrokerMetadataSnapshotter.scala
+@@ -45,11 +45,7 @@ class RecordListConsumer(
+   val appendBatch: java.util.List[ApiMessageAndVersion] => Unit
+ ) extends Consumer[java.util.List[ApiMessageAndVersion]] {
+   override def accept(messages: java.util.List[ApiMessageAndVersion]): Unit = {
+-    var i = 0
+-    while (i < messages.size()) {
+-      appendBatch(messages.subList(i, Math.min(i + maxRecordsInBatch, messages.size())))
+-      i += maxRecordsInBatch
+-    }
++    appendBatch(messages)
+   }
+ }
+ 
