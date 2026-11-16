@@ -1,0 +1,12 @@
+On branch pr-12244
+You are currently cherry-picking commit 2047fc3715.
+  (fix conflicts and run "git cherry-pick --continue")
+  (use "git cherry-pick --skip" to skip this patch)
+  (use "git cherry-pick --abort" to cancel the cherry-pick operation)
+
+Unmerged paths:
+  (use "git add <file>..." to mark resolution)
+	both modified:   clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java
+	both modified:   clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java
+
+no changes added to commit (use "git add" and/or "git commit -a")

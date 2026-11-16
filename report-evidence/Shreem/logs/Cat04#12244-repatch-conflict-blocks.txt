@@ -1,0 +1,72 @@
+# PR #12244 - RePatch conflict-block analysis
+# date: Mon Nov 16 12:30:45 PST 2026
+# source: repatch_lab database, re-run of: repatch lab apache/kafka linkedin/kafka 12244
+# verdict reproduced four weeks later: Git-CherryPick 2/4/109, RePatch 2/4/109
+
++----------------+------------------------------+------------+----------+-----------------+---------+------------+
+| merge_tool     | file                         | start_line | end_line | conflicting_loc | is_same | is_comment |
++----------------+------------------------------+------------+----------+-----------------+---------+------------+
+| Git-CherryPick | ConsumerCoordinator.java     |         19 |       24 |               5 |       0 |          0 |
+| Git-CherryPick | ConsumerCoordinator.java     |        543 |      558 |              15 |       0 |          0 |
+| Git-CherryPick | ConsumerCoordinator.java     |        985 |     1005 |              20 |       0 |          0 |
+| Git-CherryPick | ConsumerCoordinatorTest.java |        481 |      550 |              69 |       0 |          0 |
+| RePatch        | ConsumerCoordinator.java     |         19 |       24 |               5 |       0 |          0 |
+| RePatch        | ConsumerCoordinator.java     |        543 |      558 |              15 |       0 |          0 |
+| RePatch        | ConsumerCoordinator.java     |        985 |     1005 |              20 |       0 |          0 |
+| RePatch        | ConsumerCoordinatorTest.java |        481 |      550 |              69 |       0 |          0 |
++----------------+------------------------------+------------+----------+-----------------+---------+------------+
+
+# WHAT EACH BLOCK CONTAINS, verified against Cat04#12244-cherrypick-conflict.txt
+#
+# block 1  ConsumerCoordinator.java 19-24    5 loc
+#          Three new imports (java.time.Duration, java.util.SortedSet, java.util.TreeSet).
+#          The HEAD side of the conflict is EMPTY. Nothing opposes the addition.
+#          3.0-li has its own extra import (java.util.concurrent.TimeUnit) nearby, which is
+#          what moved the context and caused git to stop.
+#          NOT a real conflict.
+#
+# block 2  ConsumerCoordinator.java 543-558  15 loc
+#          A comment reworded. HEAD carries LinkedIn's longer 7-line comment about manually
+#          assigned partitions; the patch carries upstream's 6-line version. The code
+#          immediately below, "if (metadata.updateRequested() && !client.hasReadyNodes(...))",
+#          is IDENTICAL on both sides.
+#          NOT a real conflict. Nothing executable differs.
+#
+# block 3  ConsumerCoordinator.java 985-1005 20 loc
+#          The genuine change. HEAD has "if (!coordinatorUnknown())"; the patch has the
+#          offsets.isEmpty() branch, coordinatorUnknownAndUnready(time.timer(Duration.ZERO)),
+#          and a RequestFuture<Void> local.
+#          A REAL conflict. The barrier is a missing helper and a changed return type,
+#          neither of which is a refactoring.
+#
+# block 4  ConsumerCoordinatorTest.java 481-550  69 loc
+#          Three whole new @Test methods added: testCoordinatorNotAvailableWithUserAssignedType,
+#          testAutoCommitAsyncWithUserAssignedType, testCommitAsyncWithUserAssignedType.
+#          The HEAD side of the conflict is EMPTY.
+#          NOT a real conflict. Pure addition with nothing opposing it.
+#
+# SUMMARY
+#   109 conflicting lines reported.
+#    20 lines (block 3) are a genuine semantic conflict.
+#    89 lines (blocks 1, 2, 4) are additive or cosmetic, with an empty HEAD side or
+#       identical executable code.
+#   82% of the reported conflicting LOC is not a conflict between competing changes.
+#
+# WOULD A TOOL IMPROVEMENT HAVE RESOLVED THEM?
+#   block 1  YES in principle. Import lists are additive and order-independent. A merge that
+#            understood import blocks could take the union without asking.
+#   block 2  YES in principle. Both sides are comment text and the code beneath is identical.
+#            NOTE: the conflict_block table has an is_comment column, and for this block it
+#            is set to 0. RePatch carries a field for this classification and did not apply
+#            it here. This is the most concrete improvement opportunity found.
+#   block 3  NO. Refactoring inversion cannot create a helper that does not exist or reconcile
+#            a void/RequestFuture<Void> signature difference. This is the block that makes the
+#            PR need manual adaptation, and it is only 20 of the 109 lines.
+#   block 4  YES in principle. Pure addition with an empty HEAD side.
+#
+# CONCLUSION
+#   The explanation given in the Intermediate Report holds and is now measured rather than
+#   inferred. RePatch's verdict could not improve on cherry-pick here, but the reason is not
+#   that all 109 lines are hard. It is that the tool treats additive and comment-only blocks
+#   the same as a semantic clash, so a single 20-line real conflict is reported alongside
+#   89 lines that no developer would have to think about.

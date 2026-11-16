@@ -1,0 +1,13 @@
+On branch pr-12752
+You are currently cherry-picking commit 5bd556a49b.
+  (fix conflicts and run "git cherry-pick --continue")
+  (use "git cherry-pick --skip" to skip this patch)
+  (use "git cherry-pick --abort" to cancel the cherry-pick operation)
+
+Unmerged paths:
+  (use "git add/rm <file>..." as appropriate to mark resolution)
+	both modified:   clients/src/main/java/org/apache/kafka/clients/producer/KafkaProducer.java
+	deleted by us:   clients/src/main/java/org/apache/kafka/clients/producer/internals/BuiltInPartitioner.java
+	both modified:   core/src/test/scala/integration/kafka/api/PlaintextProducerSendTest.scala
+
+no changes added to commit (use "git add" and/or "git commit -a")

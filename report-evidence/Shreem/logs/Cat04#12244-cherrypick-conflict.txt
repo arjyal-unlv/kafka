@@ -1,0 +1,155 @@
+diff --cc clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java
+index 87485cc4df,b853ff99e8..0000000000
+--- a/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java
++++ b/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java
+@@@ -16,8 -16,10 +16,14 @@@
+   */
+  package org.apache.kafka.clients.consumer.internals;
+  
+++<<<<<<< HEAD
+++=======
++ import java.time.Duration;
++ import java.util.SortedSet;
++ import java.util.TreeSet;
+++>>>>>>> 2047fc3715 (HOTFIX: only try to clear discover-coordinator future upon commit (#12244))
+  import org.apache.kafka.clients.GroupRebalanceConfig;
+ +import java.util.concurrent.TimeUnit;
+  import org.apache.kafka.clients.consumer.CommitFailedException;
+  import org.apache.kafka.clients.consumer.ConsumerConfig;
+  import org.apache.kafka.clients.consumer.ConsumerGroupMetadata;
+@@@ -534,13 -549,12 +540,22 @@@ public final class ConsumerCoordinator 
+                  }
+              }
+          } else {
+++<<<<<<< HEAD
+ +            // For manually assigned partitions, if there are no ready nodes, await metadata.
+ +            // If connections to all nodes fail, wakeups triggered while attempting to send fetch
+ +            // requests result in polls returning immediately, causing a tight loop of polls. Without
+ +            // the wakeup, poll() with no channels would block for the timeout, delaying re-connection.
+ +            // awaitMetadataUpdate() initiates new connections with configured backoff and avoids the busy loop.
+ +            // When group management is used, metadata wait is already performed for this scenario as
+ +            // coordinator is unknown, hence this check is not required.
+++=======
++             // For manually assigned partitions, we do not try to pro-actively lookup coordinator;
++             // instead we only try to refresh metadata when necessary.
++             // If connections to all nodes fail, wakeups triggered while attempting to send fetch
++             // requests result in polls returning immediately, causing a tight loop of polls. Without
++             // the wakeup, poll() with no channels would block for the timeout, delaying re-connection.
++             // awaitMetadataUpdate() in ensureCoordinatorReady initiates new connections with configured backoff and avoids the busy loop.
+++>>>>>>> 2047fc3715 (HOTFIX: only try to clear discover-coordinator future upon commit (#12244))
+              if (metadata.updateRequested() && !client.hasReadyNodes(timer.currentTimeMs())) {
+                  client.awaitMetadataUpdate(timer);
+              }
+@@@ -961,11 -1002,25 +979,30 @@@
+          }
+      }
+  
+ -    public RequestFuture<Void> commitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, final OffsetCommitCallback callback) {
+ +    public void commitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, final OffsetCommitCallback callback) {
+          invokeCompletedOffsetCommitCallbacks();
+  
+++<<<<<<< HEAD
+ +        if (!coordinatorUnknown()) {
+ +            doCommitOffsetsAsync(offsets, callback);
+++=======
++         RequestFuture<Void> future = null;
++         if (offsets.isEmpty()) {
++             // No need to check coordinator if offsets is empty since commit of empty offsets is completed locally.
++             future = doCommitOffsetsAsync(offsets, callback);
++         } else if (!coordinatorUnknownAndUnready(time.timer(Duration.ZERO))) {
++             // we need to make sure coordinator is ready before committing, since
++             // this is for async committing we do not try to block, but just try once to
++             // clear the previous discover-coordinator future, resend, or get responses;
++             // if the coordinator is not ready yet then we would just proceed and put that into the
++             // pending requests, and future poll calls would still try to complete them.
++             //
++             // the key here though is that we have to try sending the discover-coordinator if
++             // it's not known or ready, since this is the only place we can send such request
++             // under manual assignment (there we would not have heartbeat thread trying to auto-rediscover
++             // the coordinator).
++             future = doCommitOffsetsAsync(offsets, callback);
+++>>>>>>> 2047fc3715 (HOTFIX: only try to clear discover-coordinator future upon commit (#12244))
+          } else {
+              // we don't know the current coordinator, so try to find it and then send the commit
+              // or fail (we don't want recursive retries which can cause offset commits to arrive
+diff --cc clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java
+index 51e6ecf48f,180053ee22..0000000000
+--- a/clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java
++++ b/clients/src/test/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinatorTest.java
+@@@ -478,6 -506,73 +478,76 @@@ public abstract class ConsumerCoordinat
+      }
+  
+      @Test
+++<<<<<<< HEAD
+++=======
++     public void testCoordinatorNotAvailableWithUserAssignedType() {
++         subscriptions.assignFromUser(Collections.singleton(t1p));
++         // should mark coordinator unknown after COORDINATOR_NOT_AVAILABLE error
++         client.prepareResponse(groupCoordinatorResponse(node, Errors.COORDINATOR_NOT_AVAILABLE));
++         // set timeout to 0 because we don't want to retry after the error
++         coordinator.poll(time.timer(0));
++         assertTrue(coordinator.coordinatorUnknown());
++ 
++         // should not try to find coordinator since we are in manual assignment
++         // hence the prepared response should not be returned
++         client.prepareResponse(groupCoordinatorResponse(node, Errors.NONE));
++         coordinator.poll(time.timer(Long.MAX_VALUE));
++         assertTrue(coordinator.coordinatorUnknown());
++     }
++ 
++     @Test
++     public void testAutoCommitAsyncWithUserAssignedType() {
++         try (ConsumerCoordinator coordinator = buildCoordinator(rebalanceConfig, new Metrics(), assignors, true, subscriptions)) {
++             subscriptions.assignFromUser(Collections.singleton(t1p));
++             // set timeout to 0 because we expect no requests sent
++             coordinator.poll(time.timer(0));
++             assertTrue(coordinator.coordinatorUnknown());
++             assertFalse(client.hasInFlightRequests());
++ 
++             // elapse auto commit interval and set committable position
++             time.sleep(autoCommitIntervalMs);
++             subscriptions.seekUnvalidated(t1p, new SubscriptionState.FetchPosition(100L));
++ 
++             // should try to find coordinator since we are auto committing
++             coordinator.poll(time.timer(0));
++             assertTrue(coordinator.coordinatorUnknown());
++             assertTrue(client.hasInFlightRequests());
++ 
++             client.respond(groupCoordinatorResponse(node, Errors.NONE));
++             coordinator.poll(time.timer(0));
++             assertFalse(coordinator.coordinatorUnknown());
++             // after we've discovered the coordinator we should send
++             // out the commit request immediately
++             assertTrue(client.hasInFlightRequests());
++         }
++     }
++ 
++     @Test
++     public void testCommitAsyncWithUserAssignedType() {
++         subscriptions.assignFromUser(Collections.singleton(t1p));
++         // set timeout to 0 because we expect no requests sent
++         coordinator.poll(time.timer(0));
++         assertTrue(coordinator.coordinatorUnknown());
++         assertFalse(client.hasInFlightRequests());
++ 
++         // should try to find coordinator since we are commit async
++         coordinator.commitOffsetsAsync(singletonMap(t1p, new OffsetAndMetadata(100L)), (offsets, exception) -> {
++             fail("Commit should not get responses, but got offsets:" + offsets +", and exception:" + exception);
++         });
++         coordinator.poll(time.timer(0));
++         assertTrue(coordinator.coordinatorUnknown());
++         assertTrue(client.hasInFlightRequests());
++ 
++         client.respond(groupCoordinatorResponse(node, Errors.NONE));
++         coordinator.poll(time.timer(0));
++         assertFalse(coordinator.coordinatorUnknown());
++         // after we've discovered the coordinator we should send
++         // out the commit request immediately
++         assertTrue(client.hasInFlightRequests());
++     }
++ 
++     @Test
+++>>>>>>> 2047fc3715 (HOTFIX: only try to clear discover-coordinator future upon commit (#12244))
+      public void testCoordinatorNotAvailable() {
+          client.prepareResponse(groupCoordinatorResponse(node, Errors.NONE));
+          coordinator.ensureCoordinatorReady(time.timer(Long.MAX_VALUE));

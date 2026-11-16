@@ -1,0 +1,1398 @@
+diff --cc clients/src/test/java/org/apache/kafka/clients/producer/internals/SenderTest.java
+index f34af0ed63,c0701c5cb3..0000000000
+--- a/clients/src/test/java/org/apache/kafka/clients/producer/internals/SenderTest.java
++++ b/clients/src/test/java/org/apache/kafka/clients/producer/internals/SenderTest.java
+@@@ -32,10 -31,9 +32,11 @@@ import org.apache.kafka.common.MetricNa
+  import org.apache.kafka.common.Node;
+  import org.apache.kafka.common.TopicPartition;
+  import org.apache.kafka.common.errors.ClusterAuthorizationException;
+ +import org.apache.kafka.common.errors.InvalidMetadataException;
+  import org.apache.kafka.common.errors.InvalidRequestException;
++ import org.apache.kafka.common.errors.InvalidTxnStateException;
+  import org.apache.kafka.common.errors.NetworkException;
+ +import org.apache.kafka.common.errors.NotLeaderOrFollowerException;
+  import org.apache.kafka.common.errors.RecordTooLargeException;
+  import org.apache.kafka.common.errors.TimeoutException;
+  import org.apache.kafka.common.errors.TopicAuthorizationException;
+@@@ -2955,6 -3036,117 +2956,120 @@@ public class SenderTest 
+          verifyErrorMessage(produceResponse(tp0, 0L, Errors.INVALID_REQUEST, 0, -1, errorMessage), errorMessage);
+      }
+  
+++<<<<<<< HEAD
+++=======
++     @Test
++     public void testSenderShouldRetryWithBackoffOnRetriableError() {
++         final long producerId = 343434L;
++         TransactionManager transactionManager = createTransactionManager();
++         setupWithTransactionState(transactionManager);
++         long start = time.milliseconds();
++ 
++         // first request is sent immediately
++         prepareAndReceiveInitProducerId(producerId, (short) -1, Errors.COORDINATOR_LOAD_IN_PROGRESS);
++         long request1 = time.milliseconds();
++         assertEquals(start, request1);
++ 
++         // backoff before sending second request
++         prepareAndReceiveInitProducerId(producerId, (short) -1, Errors.COORDINATOR_LOAD_IN_PROGRESS);
++         long request2 = time.milliseconds();
++         assertEquals(RETRY_BACKOFF_MS, request2 - request1);
++ 
++         // third request should also backoff
++         prepareAndReceiveInitProducerId(producerId, Errors.NONE);
++         assertEquals(RETRY_BACKOFF_MS, time.milliseconds() - request2);
++     }
++ 
++     @Test
++     public void testReceiveFailedBatchTwiceWithTransactions() throws Exception {
++         ProducerIdAndEpoch producerIdAndEpoch = new ProducerIdAndEpoch(123456L, (short) 0);
++         apiVersions.update("0", NodeApiVersions.create(ApiKeys.INIT_PRODUCER_ID.id, (short) 0, (short) 3));
++         TransactionManager txnManager = new TransactionManager(logContext, "testFailTwice", 60000, 100, apiVersions);
++ 
++         setupWithTransactionState(txnManager);
++         doInitTransactions(txnManager, producerIdAndEpoch);
++ 
++         txnManager.beginTransaction();
++         txnManager.maybeAddPartition(tp0);
++         client.prepareResponse(buildAddPartitionsToTxnResponseData(0, Collections.singletonMap(tp0, Errors.NONE)));
++         sender.runOnce();
++ 
++         // Send first ProduceRequest
++         Future<RecordMetadata> request1 = appendToAccumulator(tp0);
++         sender.runOnce();  // send request
++ 
++         Node node = metadata.fetch().nodes().get(0);
++         time.sleep(2000L);
++         client.disconnect(node.idString(), true);
++         client.backoff(node, 10);
++ 
++         sender.runOnce(); // now expire the batch.
++         assertFutureFailure(request1, TimeoutException.class);
++ 
++         time.sleep(20);
++ 
++         sendIdempotentProducerResponse(0, tp0, Errors.INVALID_TXN_STATE, -1);
++         sender.runOnce(); // receive late response
++ 
++         // Loop once and confirm that the transaction manager does not enter a fatal error state
++         sender.runOnce();
++         assertTrue(txnManager.hasAbortableError());
++         TransactionalRequestResult result = txnManager.beginAbort();
++         sender.runOnce();
++ 
++         respondToEndTxn(Errors.NONE);
++         sender.runOnce();
++         assertTrue(txnManager::isInitializing);
++         prepareInitProducerResponse(Errors.NONE, producerIdAndEpoch.producerId, producerIdAndEpoch.epoch);
++         sender.runOnce();
++         assertTrue(txnManager::isReady);
++ 
++         assertTrue(result.isSuccessful());
++         result.await();
++ 
++         txnManager.beginTransaction();
++     }
++ 
++     @Test
++     public void testInvalidTxnStateIsAnAbortableError() throws Exception {
++         ProducerIdAndEpoch producerIdAndEpoch = new ProducerIdAndEpoch(123456L, (short) 0);
++         apiVersions.update("0", NodeApiVersions.create(ApiKeys.INIT_PRODUCER_ID.id, (short) 0, (short) 3));
++         TransactionManager txnManager = new TransactionManager(logContext, "testInvalidTxnState", 60000, 100, apiVersions);
++ 
++         setupWithTransactionState(txnManager);
++         doInitTransactions(txnManager, producerIdAndEpoch);
++ 
++         txnManager.beginTransaction();
++         txnManager.maybeAddPartition(tp0);
++         client.prepareResponse(buildAddPartitionsToTxnResponseData(0, Collections.singletonMap(tp0, Errors.NONE)));
++         sender.runOnce();
++ 
++         Future<RecordMetadata> request = appendToAccumulator(tp0);
++         sender.runOnce();  // send request
++         sendIdempotentProducerResponse(0, tp0, Errors.INVALID_TXN_STATE, -1);
++ 
++         // Return InvalidTxnState error. It should be abortable.
++         sender.runOnce();
++         assertFutureFailure(request, InvalidTxnStateException.class);
++         assertTrue(txnManager.hasAbortableError());
++         TransactionalRequestResult result = txnManager.beginAbort();
++         sender.runOnce();
++ 
++         // Once the transaction is aborted, we should be able to begin a new one.
++         respondToEndTxn(Errors.NONE);
++         sender.runOnce();
++         assertTrue(txnManager::isInitializing);
++         prepareInitProducerResponse(Errors.NONE, producerIdAndEpoch.producerId, producerIdAndEpoch.epoch);
++         sender.runOnce();
++         assertTrue(txnManager::isReady);
++ 
++         assertTrue(result.isSuccessful());
++         result.await();
++ 
++         txnManager.beginTransaction();
++     }
++ 
+++>>>>>>> 6f39ef02ca (MINOR: Adjust Invalid Record Exception for Invalid Txn State as mentioned in KIP-890 (#14088))
+      private void verifyErrorMessage(ProduceResponse response, String expectedMessage) throws Exception {
+          Future<RecordMetadata> future = appendToAccumulator(tp0, 0L, "key", "value");
+          sender.runOnce(); // connect
+diff --cc core/src/main/scala/kafka/server/ReplicaManager.scala
+index 86fcbc9f19,d56762a151..0000000000
+--- a/core/src/main/scala/kafka/server/ReplicaManager.scala
++++ b/core/src/main/scala/kafka/server/ReplicaManager.scala
+@@@ -655,70 -700,137 +655,103 @@@ class ReplicaManager(val config: KafkaC
+                      delayedProduceLock: Option[Lock] = None,
+                      recordConversionStatsCallback: Map[TopicPartition, RecordConversionStats] => Unit = _ => (),
+                      requestLocal: RequestLocal = RequestLocal.NoCaching,
+ -                    transactionalId: String = null,
+ -                    transactionStatePartition: Option[Int] = None,
+ -                    actionQueue: ActionQueue = this.actionQueue): Unit = {
+ +                    produceRequestInstrumentation: ProduceRequestInstrumentation = NoOpProduceRequestInstrumentation): Unit = {
+      if (isValidRequiredAcks(requiredAcks)) {
+        val sTime = time.milliseconds
+ -
+ +      produceRequestInstrumentation.markStage(Stage.AppendToLocalLog)
+ +      val localProduceResults = appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
+ +        origin, entriesPerPartition, requiredAcks, requestLocal)
+ +      debug("Produce to local log in %d ms".format(time.milliseconds - sTime))
+ +
+++<<<<<<< HEAD
+ +      produceRequestInstrumentation.markStage(Stage.ProcessAppendToLocalLogStatus)
+ +      val produceStatus = localProduceResults.map { case (topicPartition, result) =>
+ +        topicPartition -> ProducePartitionStatus(
+ +          result.info.lastOffset + 1, // required offset
+ +          new PartitionResponse(
+ +            result.error,
+ +            result.info.firstOffset.map(_.messageOffset).getOrElse(-1),
+ +            result.info.logAppendTime,
+ +            result.info.logStartOffset,
+ +            result.info.recordErrors.asJava,
+ +            result.info.errorMessage
+++=======
++       val verificationGuards: mutable.Map[TopicPartition, Object] = mutable.Map[TopicPartition, Object]()
++       val (verifiedEntriesPerPartition, notYetVerifiedEntriesPerPartition, errorsPerPartition) =
++         if (transactionStatePartition.isEmpty || !config.transactionPartitionVerificationEnable)
++           (entriesPerPartition, Map.empty[TopicPartition, MemoryRecords], Map.empty[TopicPartition, Errors])
++         else {
++           val verifiedEntries = mutable.Map[TopicPartition, MemoryRecords]()
++           val unverifiedEntries = mutable.Map[TopicPartition, MemoryRecords]()
++           val errorEntries = mutable.Map[TopicPartition, Errors]()
++           partitionEntriesForVerification(verificationGuards, entriesPerPartition, verifiedEntries, unverifiedEntries, errorEntries)
++           (verifiedEntries.toMap, unverifiedEntries.toMap, errorEntries.toMap)
++         }
++ 
++       def appendEntries(allEntries: Map[TopicPartition, MemoryRecords])(unverifiedEntries: Map[TopicPartition, Errors]): Unit = {
++         val verifiedEntries = 
++           if (unverifiedEntries.isEmpty)
++             allEntries 
++           else
++             allEntries.filter { case (tp, _) =>
++               !unverifiedEntries.contains(tp)
++             }
++         
++         val localProduceResults = appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
++           origin, verifiedEntries, requiredAcks, requestLocal, verificationGuards.toMap)
++         debug("Produce to local log in %d ms".format(time.milliseconds - sTime))
++         
++         val unverifiedResults = unverifiedEntries.map { case (topicPartition, error) =>
++           val message = if (error == Errors.INVALID_TXN_STATE) "Partition was not added to the transaction" else error.message()
++           topicPartition -> LogAppendResult(
++             LogAppendInfo.UNKNOWN_LOG_APPEND_INFO,
++             Some(error.exception(message))
+++>>>>>>> 6f39ef02ca (MINOR: Adjust Invalid Record Exception for Invalid Txn State as mentioned in KIP-890 (#14088))
+            )
+ -        }
+ -
+ -        val errorResults = errorsPerPartition.map { case (topicPartition, error) =>
+ -          topicPartition -> LogAppendResult(
+ -            LogAppendInfo.UNKNOWN_LOG_APPEND_INFO,
+ -            Some(error.exception())
+ -          )
+ -        }
+ -        
+ -        val allResults = localProduceResults ++ unverifiedResults ++ errorResults
+ -
+ -        val produceStatus = allResults.map { case (topicPartition, result) =>
+ -          topicPartition -> ProducePartitionStatus(
+ -            result.info.lastOffset + 1, // required offset
+ -            new PartitionResponse(
+ -              result.error,
+ -              result.info.firstOffset.map[Long](_.messageOffset).orElse(-1L),
+ -              result.info.lastOffset,
+ -              result.info.logAppendTime,
+ -              result.info.logStartOffset,
+ -              result.info.recordErrors,
+ -              result.info.errorMessage
+ -            )
+ -          ) // response status
+ -        }
+ +        ) // response status
+ +      }
+  
+ -        actionQueue.add {
+ -          () => allResults.foreach { case (topicPartition, result) =>
+ -            val requestKey = TopicPartitionOperationKey(topicPartition)
+ -            result.info.leaderHwChange match {
+ -              case LeaderHwChange.INCREASED =>
+ -                // some delayed operations may be unblocked after HW changed
+ -                delayedProducePurgatory.checkAndComplete(requestKey)
+ -                delayedFetchPurgatory.checkAndComplete(requestKey)
+ -                delayedDeleteRecordsPurgatory.checkAndComplete(requestKey)
+ -              case LeaderHwChange.SAME =>
+ -                // probably unblock some follower fetch requests since log end offset has been updated
+ -                delayedFetchPurgatory.checkAndComplete(requestKey)
+ -              case LeaderHwChange.NONE =>
+ -              // nothing
+ -            }
+ +      actionQueue.add {
+ +        () =>
+ +          localProduceResults.foreach {
+ +            case (topicPartition, result) =>
+ +              val requestKey = TopicPartitionOperationKey(topicPartition)
+ +              result.info.leaderHwChange match {
+ +                case LeaderHwChange.Increased =>
+ +                  // some delayed operations may be unblocked after HW changed
+ +                  delayedProducePurgatory.checkAndComplete(requestKey)
+ +                  delayedFetchPurgatory.checkAndComplete(requestKey)
+ +                  delayedDeleteRecordsPurgatory.checkAndComplete(requestKey)
+ +                case LeaderHwChange.Same =>
+ +                  // probably unblock some follower fetch requests since log end offset has been updated
+ +                  delayedFetchPurgatory.checkAndComplete(requestKey)
+ +                case LeaderHwChange.None =>
+ +                  // nothing
+ +              }
+            }
+ -        }
+ +      }
+  
+ -        recordConversionStatsCallback(localProduceResults.map { case (k, v) => k -> v.info.recordConversionStats })
+ +      recordConversionStatsCallback(localProduceResults.map { case (k, v) => k -> v.info.recordConversionStats })
+  
+ -        if (delayedProduceRequestRequired(requiredAcks, allEntries, allResults)) {
+ -          // create delayed produce operation
+ -          val produceMetadata = ProduceMetadata(requiredAcks, produceStatus)
+ -          val delayedProduce = new DelayedProduce(timeout, produceMetadata, this, responseCallback, delayedProduceLock)
+ +      if (delayedProduceRequestRequired(requiredAcks, entriesPerPartition, localProduceResults)) {
+ +        produceRequestInstrumentation.markStage(Stage.PrepareDelayedProduce)
+ +        // create delayed produce operation
+ +        val produceMetadata = ProduceMetadata(requiredAcks, produceStatus)
+ +        val delayedProduce = new DelayedProduce(timeout, produceMetadata, this, responseCallback, delayedProduceLock)
+  
+ -          // create a list of (topic, partition) pairs to use as keys for this delayed produce operation
+ -          val producerRequestKeys = allEntries.keys.map(TopicPartitionOperationKey(_)).toSeq
+ +        // create a list of (topic, partition) pairs to use as keys for this delayed produce operation
+ +        val producerRequestKeys = entriesPerPartition.keys.map(TopicPartitionOperationKey(_)).toSeq
+  
+ -          // try to complete the request immediately, otherwise put it into the purgatory
+ -          // this is because while the delayed produce operation is being created, new
+ -          // requests may arrive and hence make this operation completable.
+ -          delayedProducePurgatory.tryCompleteElseWatch(delayedProduce, producerRequestKeys)
+ -        } else {
+ -          // we can respond immediately
+ -          val produceResponseStatus = produceStatus.map { case (k, status) => k -> status.responseStatus }
+ -          responseCallback(produceResponseStatus)
+ -        }
+ -      }
+ +        // try to complete the request immediately, otherwise put it into the purgatory
+ +        // this is because while the delayed produce operation is being created, new
+ +        // requests may arrive and hence make this operation completable.
+ +        produceRequestInstrumentation.markStage(Stage.EnqueueDelayedProduce)
+ +        delayedProducePurgatory.tryCompleteElseWatch(delayedProduce, producerRequestKeys)
+  
+ -      if (notYetVerifiedEntriesPerPartition.isEmpty || addPartitionsToTxnManager.isEmpty) {
+ -        appendEntries(verifiedEntriesPerPartition)(Map.empty)
+        } else {
+ -        // For unverified entries, send a request to verify. When verified, the append process will proceed via the callback.
+ -        val (error, node) = getTransactionCoordinator(transactionStatePartition.get)
+ -
+ -        if (error != Errors.NONE) {
+ -          throw error.exception() // Can throw coordinator not available -- which is retriable
+ -        }
+ -
+ -        val topicGrouping = notYetVerifiedEntriesPerPartition.keySet.groupBy(tp => tp.topic())
+ -        val topicCollection = new AddPartitionsToTxnTopicCollection()
+ -        topicGrouping.foreach { case (topic, tps) =>
+ -          topicCollection.add(new AddPartitionsToTxnTopic()
+ -            .setName(topic)
+ -            .setPartitions(tps.map(tp => Integer.valueOf(tp.partition())).toList.asJava))
+ -        }
+ -
+ -        // Map not yet verified partitions to a request object.
+ -        // We verify above that all partitions use the same producer ID.
+ -        val batchInfo = notYetVerifiedEntriesPerPartition.head._2.firstBatch()
+ -        val notYetVerifiedTransaction = new AddPartitionsToTxnTransaction()
+ -          .setTransactionalId(transactionalId)
+ -          .setProducerId(batchInfo.producerId())
+ -          .setProducerEpoch(batchInfo.producerEpoch())
+ -          .setVerifyOnly(true)
+ -          .setTopics(topicCollection)
+ -
+ -        addPartitionsToTxnManager.foreach(_.addTxnData(node, notYetVerifiedTransaction, KafkaRequestHandler.wrap(appendEntries(entriesPerPartition)(_))))
+ +        // we can respond immediately
+ +        val produceResponseStatus = produceStatus.map { case (k, status) => k -> status.responseStatus }
+ +        responseCallback(produceResponseStatus)
+        }
+      } else {
+        // If required.acks is outside accepted range, something is wrong with the client
+diff --cc core/src/test/scala/unit/kafka/cluster/PartitionTest.scala
+index 1c0f37d4d7,7e346badbb..0000000000
+--- a/core/src/test/scala/unit/kafka/cluster/PartitionTest.scala
++++ b/core/src/test/scala/unit/kafka/cluster/PartitionTest.scala
+@@@ -25,15 -24,16 +25,24 @@@ import kafka.server.
+  import kafka.server.checkpoints.OffsetCheckpoints
+  import kafka.utils._
+  import kafka.zk.KafkaZkClient
+++<<<<<<< HEAD
+ +import org.apache.kafka.common.errors.{ApiException, InconsistentTopicIdException, NotLeaderOrFollowerException, OffsetNotAvailableException, OffsetOutOfRangeException}
+ +import org.apache.kafka.common.message.FetchResponseData
+++=======
++ import org.apache.kafka.common.errors.{ApiException, FencedLeaderEpochException, InconsistentTopicIdException, InvalidTxnStateException, NotLeaderOrFollowerException, OffsetNotAvailableException, OffsetOutOfRangeException, UnknownLeaderEpochException}
++ import org.apache.kafka.common.message.{AlterPartitionResponseData, FetchResponseData}
+++>>>>>>> 6f39ef02ca (MINOR: Adjust Invalid Record Exception for Invalid Txn State as mentioned in KIP-890 (#14088))
+  import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
+ -import org.apache.kafka.common.protocol.{ApiKeys, Errors}
+ +import org.apache.kafka.common.protocol.Errors
+  import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
+  import org.apache.kafka.common.record._
+ -import org.apache.kafka.common.requests.{AlterPartitionResponse, FetchRequest, ListOffsetsRequest, RequestHeader}
+ +import org.apache.kafka.common.requests.ListOffsetsRequest
+  import org.apache.kafka.common.utils.SystemTime
+  import org.apache.kafka.common.{IsolationLevel, TopicPartition, Uuid}
+++<<<<<<< HEAD
+++=======
++ import org.apache.kafka.metadata.LeaderRecoveryState
+++>>>>>>> 6f39ef02ca (MINOR: Adjust Invalid Record Exception for Invalid Txn State as mentioned in KIP-890 (#14088))
+  import org.junit.jupiter.api.Assertions._
+  import org.junit.jupiter.api.Test
+  import org.mockito.ArgumentMatchers
+@@@ -1968,7 -2915,588 +1977,592 @@@ class PartitionTest extends AbstractPar
+      verify(spyConfigRepository, times(2)).topicConfig(topicPartition.topic())
+    }
+  
+++<<<<<<< HEAD
+ +  private def seedLogData(log: Log, numRecords: Int, leaderEpoch: Int): Unit = {
+++=======
++   @Test
++   def testDoNotResetReplicaStateIfLeaderEpochIsNotBumped(): Unit = {
++     val controllerEpoch = 3
++     val leaderId = brokerId
++     val followerId = brokerId + 1
++     val replicas = List(leaderId, followerId)
++     val leaderEpoch = 8
++     val topicId = Uuid.randomUuid()
++ 
++     val initialLeaderState = new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(leaderId)
++       .setLeaderEpoch(leaderEpoch)
++       .setIsr(List(leaderId).map(Int.box).asJava)
++       .setPartitionEpoch(1)
++       .setReplicas(replicas.map(Int.box).asJava)
++       .setIsNew(true)
++ 
++     assertTrue(partition.makeLeader(initialLeaderState, offsetCheckpoints, Some(topicId)))
++     assertEquals(1, partition.getPartitionEpoch)
++     assertEquals(leaderEpoch, partition.getLeaderEpoch)
++     assertEquals(Set(leaderId), partition.partitionState.isr)
++ 
++     // Follower's state is initialized with unknown offset because it is not
++     // in the ISR.
++     assertReplicaState(partition, followerId,
++       lastCaughtUpTimeMs = 0L,
++       logStartOffset = UnifiedLog.UnknownOffset,
++       logEndOffset = UnifiedLog.UnknownOffset
++     )
++ 
++     // Follower fetches and updates its replica state.
++     fetchFollower(partition, replicaId = followerId, fetchOffset = 0L)
++     assertReplicaState(partition, followerId,
++       lastCaughtUpTimeMs = time.milliseconds(),
++       logStartOffset = 0L,
++       logEndOffset = 0L
++     )
++ 
++     // makeLeader is called again with the same leader epoch but with
++     // a newer partition epoch. This can happen in KRaft when a partition
++     // is reassigned. The leader epoch is not bumped when we add replicas.
++     val updatedLeaderState = new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(leaderId)
++       .setLeaderEpoch(leaderEpoch)
++       .setIsr(List(leaderId).map(Int.box).asJava)
++       .setPartitionEpoch(2)
++       .setReplicas(replicas.map(Int.box).asJava)
++       .setIsNew(false)
++ 
++     assertFalse(partition.makeLeader(updatedLeaderState, offsetCheckpoints, Some(topicId)))
++     assertEquals(2, partition.getPartitionEpoch)
++     assertEquals(leaderEpoch, partition.getLeaderEpoch)
++     assertEquals(Set(leaderId), partition.partitionState.isr)
++ 
++     // Follower's state has not been reset.
++     assertReplicaState(partition, followerId,
++       lastCaughtUpTimeMs = time.milliseconds(),
++       logStartOffset = 0L,
++       logEndOffset = 0L
++     )
++   }
++ 
++   @Test
++   def testDoNotUpdateEpochStartOffsetIfLeaderEpochIsNotBumped(): Unit = {
++     val controllerEpoch = 3
++     val leaderId = brokerId
++     val followerId = brokerId + 1
++     val replicas = List(leaderId, followerId)
++     val leaderEpoch = 8
++     val topicId = Uuid.randomUuid()
++ 
++     val initialLeaderState = new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(leaderId)
++       .setLeaderEpoch(leaderEpoch)
++       .setIsr(List(leaderId).map(Int.box).asJava)
++       .setPartitionEpoch(1)
++       .setReplicas(replicas.map(Int.box).asJava)
++       .setIsNew(true)
++ 
++     assertTrue(partition.makeLeader(initialLeaderState, offsetCheckpoints, Some(topicId)))
++     assertEquals(1, partition.getPartitionEpoch)
++     assertEquals(leaderEpoch, partition.getLeaderEpoch)
++     assertEquals(Set(leaderId), partition.partitionState.isr)
++     assertEquals(Some(0L), partition.leaderEpochStartOffsetOpt)
++ 
++     val leaderLog = partition.localLogOrException
++     assertEquals(Optional.of(new EpochEntry(leaderEpoch, 0L)), leaderLog.leaderEpochCache.asJava.flatMap(_.latestEntry))
++ 
++     // Write to the log to increment the log end offset.
++     leaderLog.appendAsLeader(MemoryRecords.withRecords(0L, CompressionType.NONE, 0,
++       new SimpleRecord("k1".getBytes, "v1".getBytes),
++       new SimpleRecord("k1".getBytes, "v1".getBytes)
++     ), leaderEpoch = leaderEpoch)
++ 
++     // makeLeader is called again with the same leader epoch but with
++     // a newer partition epoch.
++     val updatedLeaderState = new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(leaderId)
++       .setLeaderEpoch(leaderEpoch)
++       .setIsr(List(leaderId).map(Int.box).asJava)
++       .setPartitionEpoch(2)
++       .setReplicas(replicas.map(Int.box).asJava)
++       .setIsNew(false)
++ 
++     assertFalse(partition.makeLeader(updatedLeaderState, offsetCheckpoints, Some(topicId)))
++     assertEquals(2, partition.getPartitionEpoch)
++     assertEquals(leaderEpoch, partition.getLeaderEpoch)
++     assertEquals(Set(leaderId), partition.partitionState.isr)
++     assertEquals(Some(0L), partition.leaderEpochStartOffsetOpt)
++     assertEquals(Optional.of(new EpochEntry(leaderEpoch, 0L)), leaderLog.leaderEpochCache.asJava.flatMap(_.latestEntry))
++   }
++ 
++   @Test
++   def testIgnoreLeaderPartitionStateChangeWithOlderPartitionEpoch(): Unit = {
++     val controllerEpoch = 3
++     val leaderId = brokerId
++     val replicas = List(leaderId)
++     val leaderEpoch = 8
++     val topicId = Uuid.randomUuid()
++ 
++     val initialLeaderState = new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(leaderId)
++       .setLeaderEpoch(leaderEpoch)
++       .setIsr(List(leaderId).map(Int.box).asJava)
++       .setPartitionEpoch(1)
++       .setReplicas(replicas.map(Int.box).asJava)
++       .setIsNew(true)
++ 
++     assertTrue(partition.makeLeader(initialLeaderState, offsetCheckpoints, Some(topicId)))
++     assertEquals(1, partition.getPartitionEpoch)
++     assertEquals(leaderEpoch, partition.getLeaderEpoch)
++ 
++     // makeLeader is called again with the same leader epoch but with
++     // a older partition epoch.
++     val updatedLeaderState = new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(leaderId)
++       .setLeaderEpoch(leaderEpoch)
++       .setIsr(List(leaderId).map(Int.box).asJava)
++       .setPartitionEpoch(0)
++       .setReplicas(replicas.map(Int.box).asJava)
++       .setIsNew(false)
++ 
++     assertFalse(partition.makeLeader(updatedLeaderState, offsetCheckpoints, Some(topicId)))
++     assertEquals(1, partition.getPartitionEpoch)
++     assertEquals(leaderEpoch, partition.getLeaderEpoch)
++   }
++ 
++   @Test
++   def testIgnoreFollowerPartitionStateChangeWithOlderPartitionEpoch(): Unit = {
++     val controllerEpoch = 3
++     val leaderId = brokerId
++     val followerId = brokerId + 1
++     val replicas = List(leaderId, followerId)
++     val leaderEpoch = 8
++     val topicId = Uuid.randomUuid()
++ 
++     val initialFollowerState = new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(followerId)
++       .setLeaderEpoch(leaderEpoch)
++       .setIsr(List(leaderId, followerId).map(Int.box).asJava)
++       .setPartitionEpoch(1)
++       .setReplicas(replicas.map(Int.box).asJava)
++       .setIsNew(true)
++ 
++     assertTrue(partition.makeFollower(initialFollowerState, offsetCheckpoints, Some(topicId)))
++     assertEquals(1, partition.getPartitionEpoch)
++     assertEquals(leaderEpoch, partition.getLeaderEpoch)
++ 
++     // makeLeader is called again with the same leader epoch but with
++     // a older partition epoch.
++     val updatedFollowerState = new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(followerId)
++       .setLeaderEpoch(leaderEpoch)
++       .setIsr(List(leaderId, followerId).map(Int.box).asJava)
++       .setPartitionEpoch(1)
++       .setReplicas(replicas.map(Int.box).asJava)
++       .setIsNew(true)
++ 
++     assertFalse(partition.makeFollower(updatedFollowerState, offsetCheckpoints, Some(topicId)))
++     assertEquals(1, partition.getPartitionEpoch)
++     assertEquals(leaderEpoch, partition.getLeaderEpoch)
++   }
++ 
++   @Test
++   def testFollowerShouldNotHaveAnyRemoteReplicaStates(): Unit = {
++     val controllerEpoch = 3
++     val localReplica = brokerId
++     val remoteReplica1 = brokerId + 1
++     val remoteReplica2 = brokerId + 2
++     val replicas = List(localReplica, remoteReplica1, remoteReplica2)
++     val topicId = Uuid.randomUuid()
++ 
++     // The local replica is the leader.
++     val initialLeaderState = new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(localReplica)
++       .setLeaderEpoch(1)
++       .setIsr(replicas.map(Int.box).asJava)
++       .setPartitionEpoch(1)
++       .setReplicas(replicas.map(Int.box).asJava)
++       .setIsNew(true)
++ 
++     assertTrue(partition.makeLeader(initialLeaderState, offsetCheckpoints, Some(topicId)))
++     assertEquals(1, partition.getPartitionEpoch)
++     assertEquals(1, partition.getLeaderEpoch)
++     assertEquals(Some(localReplica), partition.leaderReplicaIdOpt)
++     assertEquals(replicas.toSet, partition.partitionState.isr)
++     assertEquals(Seq(remoteReplica1, remoteReplica2), partition.remoteReplicas.map(_.brokerId).toSeq)
++     assertEquals(replicas, partition.assignmentState.replicas)
++ 
++     // The local replica becomes a follower.
++     val updatedLeaderState = new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(remoteReplica1)
++       .setLeaderEpoch(2)
++       .setIsr(replicas.map(Int.box).asJava)
++       .setPartitionEpoch(2)
++       .setReplicas(replicas.map(Int.box).asJava)
++       .setIsNew(false)
++ 
++     assertTrue(partition.makeFollower(updatedLeaderState, offsetCheckpoints, Some(topicId)))
++     assertEquals(2, partition.getPartitionEpoch)
++     assertEquals(2, partition.getLeaderEpoch)
++     assertEquals(Some(remoteReplica1), partition.leaderReplicaIdOpt)
++     assertEquals(Set.empty, partition.partitionState.isr)
++     assertEquals(Seq.empty, partition.remoteReplicas.map(_.brokerId).toSeq)
++     assertEquals(replicas, partition.assignmentState.replicas)
++   }
++ 
++   @Test
++   def testAddAndRemoveListeners(): Unit = {
++     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, topicId = None)
++ 
++     partition.makeLeader(
++       new LeaderAndIsrPartitionState()
++         .setControllerEpoch(0)
++         .setLeader(brokerId)
++         .setLeaderEpoch(0)
++         .setIsr(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setReplicas(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setPartitionEpoch(1)
++         .setIsNew(true),
++       offsetCheckpoints,
++       topicId = None)
++ 
++     val listener1 = new MockPartitionListener()
++     val listener2 = new MockPartitionListener()
++ 
++     assertTrue(partition.maybeAddListener(listener1))
++     listener1.verify()
++ 
++     partition.appendRecordsToLeader(
++       records = TestUtils.records(List(new SimpleRecord("k1".getBytes, "v1".getBytes))),
++       origin = AppendOrigin.CLIENT,
++       requiredAcks = 0,
++       requestLocal = RequestLocal.NoCaching
++     )
++ 
++     listener1.verify()
++     listener2.verify()
++ 
++     assertTrue(partition.maybeAddListener(listener2))
++     listener2.verify()
++ 
++     partition.appendRecordsToLeader(
++       records = TestUtils.records(List(new SimpleRecord("k2".getBytes, "v2".getBytes))),
++       origin = AppendOrigin.CLIENT,
++       requiredAcks = 0,
++       requestLocal = RequestLocal.NoCaching
++     )
++ 
++     fetchFollower(
++       partition = partition,
++       replicaId = brokerId + 1,
++       fetchOffset = partition.localLogOrException.logEndOffset
++     )
++ 
++     listener1.verify(expectedHighWatermark = partition.localLogOrException.logEndOffset)
++     listener2.verify(expectedHighWatermark = partition.localLogOrException.logEndOffset)
++ 
++     partition.removeListener(listener1)
++ 
++     partition.appendRecordsToLeader(
++       records = TestUtils.records(List(new SimpleRecord("k3".getBytes, "v3".getBytes))),
++       origin = AppendOrigin.CLIENT,
++       requiredAcks = 0,
++       requestLocal = RequestLocal.NoCaching
++     )
++ 
++     fetchFollower(
++       partition = partition,
++       replicaId = brokerId + 1,
++       fetchOffset = partition.localLogOrException.logEndOffset
++     )
++ 
++     listener1.verify()
++     listener2.verify(expectedHighWatermark = partition.localLogOrException.logEndOffset)
++   }
++ 
++   @Test
++   def testAddListenerFailsWhenPartitionIsDeleted(): Unit = {
++     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, topicId = None)
++ 
++     partition.makeLeader(
++       new LeaderAndIsrPartitionState()
++         .setControllerEpoch(0)
++         .setLeader(brokerId)
++         .setLeaderEpoch(0)
++         .setIsr(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setReplicas(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setPartitionEpoch(1)
++         .setIsNew(true),
++       offsetCheckpoints,
++       topicId = None)
++ 
++     partition.delete()
++ 
++     assertFalse(partition.maybeAddListener(new MockPartitionListener()))
++   }
++ 
++   @Test
++   def testPartitionListenerWhenLogOffsetsChanged(): Unit = {
++     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, topicId = None)
++ 
++     partition.makeLeader(
++       new LeaderAndIsrPartitionState()
++         .setControllerEpoch(0)
++         .setLeader(brokerId)
++         .setLeaderEpoch(0)
++         .setIsr(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setReplicas(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setPartitionEpoch(1)
++         .setIsNew(true),
++       offsetCheckpoints,
++       topicId = None)
++ 
++     val listener = new MockPartitionListener()
++     assertTrue(partition.maybeAddListener(listener))
++     listener.verify()
++ 
++     partition.appendRecordsToLeader(
++       records = TestUtils.records(List(new SimpleRecord("k1".getBytes, "v1".getBytes))),
++       origin = AppendOrigin.CLIENT,
++       requiredAcks = 0,
++       requestLocal = RequestLocal.NoCaching
++     )
++ 
++     listener.verify()
++ 
++     fetchFollower(
++       partition = partition,
++       replicaId = brokerId + 1,
++       fetchOffset = partition.localLogOrException.logEndOffset
++     )
++ 
++     listener.verify(expectedHighWatermark = partition.localLogOrException.logEndOffset)
++ 
++     partition.truncateFullyAndStartAt(0L, false)
++ 
++     listener.verify(expectedHighWatermark = 0L)
++   }
++ 
++   @Test
++   def testPartitionListenerWhenPartitionFailed(): Unit = {
++     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, topicId = None)
++ 
++     partition.makeLeader(
++       new LeaderAndIsrPartitionState()
++         .setControllerEpoch(0)
++         .setLeader(brokerId)
++         .setLeaderEpoch(0)
++         .setIsr(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setReplicas(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setPartitionEpoch(1)
++         .setIsNew(true),
++       offsetCheckpoints,
++       topicId = None)
++ 
++     val listener = new MockPartitionListener()
++     assertTrue(partition.maybeAddListener(listener))
++     listener.verify()
++ 
++     partition.markOffline()
++     listener.verify(expectedFailed = true)
++   }
++ 
++   @Test
++   def testPartitionListenerWhenPartitionIsDeleted(): Unit = {
++     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, topicId = None)
++ 
++     partition.makeLeader(
++       new LeaderAndIsrPartitionState()
++         .setControllerEpoch(0)
++         .setLeader(brokerId)
++         .setLeaderEpoch(0)
++         .setIsr(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setReplicas(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setPartitionEpoch(1)
++         .setIsNew(true),
++       offsetCheckpoints,
++       topicId = None)
++ 
++     val listener = new MockPartitionListener()
++     assertTrue(partition.maybeAddListener(listener))
++     listener.verify()
++ 
++     partition.delete()
++     listener.verify(expectedDeleted = true)
++   }
++ 
++   @Test
++   def testPartitionListenerWhenCurrentIsReplacedWithFutureLog(): Unit = {
++     logManager.maybeUpdatePreferredLogDir(topicPartition, logDir1.getAbsolutePath)
++     partition.createLogIfNotExists(isNew = true, isFutureReplica = false, offsetCheckpoints, topicId = None)
++     assertTrue(partition.log.isDefined)
++ 
++     partition.makeLeader(
++       new LeaderAndIsrPartitionState()
++         .setControllerEpoch(0)
++         .setLeader(brokerId)
++         .setLeaderEpoch(0)
++         .setIsr(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setReplicas(List(brokerId, brokerId + 1).map(Int.box).asJava)
++         .setPartitionEpoch(1)
++         .setIsNew(true),
++       offsetCheckpoints,
++       topicId = None)
++ 
++     val listener = new MockPartitionListener()
++     assertTrue(partition.maybeAddListener(listener))
++     listener.verify()
++ 
++     val records = TestUtils.records(List(
++       new SimpleRecord("k1".getBytes, "v1".getBytes),
++       new SimpleRecord("k2".getBytes, "v2".getBytes)
++     ))
++ 
++     partition.appendRecordsToLeader(
++       records = records,
++       origin = AppendOrigin.CLIENT,
++       requiredAcks = 0,
++       requestLocal = RequestLocal.NoCaching
++     )
++ 
++     listener.verify()
++ 
++     logManager.maybeUpdatePreferredLogDir(topicPartition, logDir2.getAbsolutePath)
++     partition.maybeCreateFutureReplica(logDir2.getAbsolutePath, offsetCheckpoints)
++     assertTrue(partition.futureLog.isDefined)
++     val futureLog = partition.futureLog.get
++ 
++     partition.appendRecordsToFollowerOrFutureReplica(
++       records = records,
++       isFuture = true
++     )
++ 
++     listener.verify()
++ 
++     assertTrue(partition.maybeReplaceCurrentWithFutureReplica())
++     assertEquals(futureLog, partition.log.get)
++ 
++     partition.appendRecordsToLeader(
++       records = TestUtils.records(List(new SimpleRecord("k3".getBytes, "v3".getBytes))),
++       origin = AppendOrigin.CLIENT,
++       requiredAcks = 0,
++       requestLocal = RequestLocal.NoCaching
++     )
++ 
++     fetchFollower(
++       partition = partition,
++       replicaId = brokerId + 1,
++       fetchOffset = partition.localLogOrException.logEndOffset
++     )
++ 
++     listener.verify(expectedHighWatermark = partition.localLogOrException.logEndOffset)
++   }
++ 
++   @Test
++   def testMaybeStartTransactionVerification(): Unit = {
++     val controllerEpoch = 0
++     val leaderEpoch = 5
++     val replicas = List[Integer](brokerId, brokerId + 1).asJava
++     val isr = replicas
++     val producerId = 22L
++ 
++     partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, None)
++ 
++     assertTrue(partition.makeLeader(new LeaderAndIsrPartitionState()
++       .setControllerEpoch(controllerEpoch)
++       .setLeader(brokerId)
++       .setLeaderEpoch(leaderEpoch)
++       .setIsr(isr)
++       .setPartitionEpoch(1)
++       .setReplicas(replicas)
++       .setIsNew(true), offsetCheckpoints, None), "Expected become leader transition to succeed")
++     assertEquals(leaderEpoch, partition.getLeaderEpoch)
++ 
++     val idempotentRecords = createIdempotentRecords(List(
++       new SimpleRecord("k1".getBytes, "v1".getBytes),
++       new SimpleRecord("k2".getBytes, "v2".getBytes),
++       new SimpleRecord("k3".getBytes, "v3".getBytes)),
++       baseOffset = 0L,
++       producerId = producerId)
++     partition.appendRecordsToLeader(idempotentRecords, origin = AppendOrigin.CLIENT, requiredAcks = 1, RequestLocal.withThreadConfinedCaching)
++ 
++     def transactionRecords() = createTransactionalRecords(List(
++       new SimpleRecord("k1".getBytes, "v1".getBytes),
++       new SimpleRecord("k2".getBytes, "v2".getBytes),
++       new SimpleRecord("k3".getBytes, "v3".getBytes)),
++       baseOffset = 0L,
++       baseSequence = 3,
++       producerId = producerId)
++ 
++     // When verification guard is not there, we should not be able to append.
++     assertThrows(classOf[InvalidTxnStateException], () => partition.appendRecordsToLeader(transactionRecords(), origin = AppendOrigin.CLIENT, requiredAcks = 1, RequestLocal.withThreadConfinedCaching))
++ 
++     // Before appendRecordsToLeader is called, ReplicaManager will call maybeStartTransactionVerification. We should get a non-null verification object.
++     val verificationGuard = partition.maybeStartTransactionVerification(producerId, 3, 0)
++     assertNotNull(verificationGuard)
++ 
++     // With the wrong verification guard, append should fail.
++     assertThrows(classOf[InvalidTxnStateException], () => partition.appendRecordsToLeader(transactionRecords(),
++       origin = AppendOrigin.CLIENT, requiredAcks = 1, RequestLocal.withThreadConfinedCaching, Optional.of(new Object)))
++ 
++     // We should return the same verification object when we still need to verify. Append should proceed.
++     val verificationGuard2 = partition.maybeStartTransactionVerification(producerId, 3, 0)
++     assertEquals(verificationGuard, verificationGuard2)
++     partition.appendRecordsToLeader(transactionRecords(), origin = AppendOrigin.CLIENT, requiredAcks = 1, RequestLocal.withThreadConfinedCaching, verificationGuard)
++ 
++     // We should no longer need a verification object. Future appends without verification guard will also succeed.
++     val verificationGuard3 = partition.maybeStartTransactionVerification(producerId, 3, 0)
++     assertNull(verificationGuard3)
++     partition.appendRecordsToLeader(transactionRecords(), origin = AppendOrigin.CLIENT, requiredAcks = 1, RequestLocal.withThreadConfinedCaching)
++   }
++ 
++   private def makeLeader(
++     topicId: Option[Uuid],
++     controllerEpoch: Int,
++     leaderEpoch: Int,
++     isr: Seq[Int],
++     replicas: Seq[Int],
++     partitionEpoch: Int,
++     isNew: Boolean,
++     partition: Partition = partition
++   ): Boolean = {
++     partition.createLogIfNotExists(
++       isNew = isNew,
++       isFutureReplica = false,
++       offsetCheckpoints,
++       topicId
++     )
++     val newLeader = partition.makeLeader(
++       new LeaderAndIsrPartitionState()
++         .setControllerEpoch(controllerEpoch)
++         .setLeader(brokerId)
++         .setLeaderEpoch(leaderEpoch)
++         .setIsr(isr.map(Int.box).asJava)
++         .setPartitionEpoch(partitionEpoch)
++         .setReplicas(replicas.map(Int.box).asJava)
++         .setIsNew(isNew),
++       offsetCheckpoints,
++       topicId
++     )
++     assertTrue(partition.isLeader)
++     assertFalse(partition.partitionState.isInflight)
++     assertEquals(topicId, partition.topicId)
++     assertEquals(leaderEpoch, partition.getLeaderEpoch)
++     assertEquals(isr.toSet, partition.partitionState.isr)
++     assertEquals(isr.toSet, partition.partitionState.maximalIsr)
++     assertEquals(partitionEpoch, partition.getPartitionEpoch)
++     newLeader
++   }
++ 
++   private def seedLogData(log: UnifiedLog, numRecords: Int, leaderEpoch: Int): Unit = {
+++>>>>>>> 6f39ef02ca (MINOR: Adjust Invalid Record Exception for Invalid Txn State as mentioned in KIP-890 (#14088))
+      for (i <- 0 until numRecords) {
+        val records = MemoryRecords.withRecords(0L, CompressionType.NONE, leaderEpoch,
+          new SimpleRecord(s"k$i".getBytes, s"v$i".getBytes))
+diff --cc core/src/test/scala/unit/kafka/server/ReplicaManagerTest.scala
+index 975b86fd75,7248330741..0000000000
+--- a/core/src/test/scala/unit/kafka/server/ReplicaManagerTest.scala
++++ b/core/src/test/scala/unit/kafka/server/ReplicaManagerTest.scala
+@@@ -1482,39 -2104,400 +1482,366 @@@ class ReplicaManagerTest 
+      val mockTimer = new MockTimer(time)
+      val replicaManager = setupReplicaManagerWithMockedPurgatories(mockTimer, aliveBrokerIds = Seq(0, 1))
+  
+ -    try {
+ -      val tp0 = new TopicPartition(topic, 0)
+ -      val offsetCheckpoints = new LazyOffsetCheckpoints(replicaManager.highWatermarkCheckpoints)
+ -      replicaManager.createPartition(tp0).createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, None)
+ -      val partition0Replicas = Seq[Integer](0, 1).asJava
+ +    val tp0 = new TopicPartition(topic, 0)
+ +    val offsetCheckpoints = new LazyOffsetCheckpoints(replicaManager.highWatermarkCheckpoints)
+ +    replicaManager.createPartition(tp0).createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, None)
+ +    val partition0Replicas = Seq[Integer](0, 1).asJava
+  
+ -      val becomeLeaderRequest = new LeaderAndIsrRequest.Builder(ApiKeys.LEADER_AND_ISR.latestVersion, 0, 0, brokerEpoch,
+ -        Seq(new LeaderAndIsrPartitionState()
+ -          .setTopicName(tp0.topic)
+ -          .setPartitionIndex(tp0.partition)
+ -          .setControllerEpoch(0)
+ -          .setLeader(0)
+ -          .setLeaderEpoch(1)
+ -          .setIsr(partition0Replicas)
+ -          .setPartitionEpoch(0)
+ -          .setReplicas(partition0Replicas)
+ -          .setIsNew(true)).asJava,
+ -        topicIds.asJava,
+ -        Set(new Node(0, "host1", 0), new Node(1, "host2", 1)).asJava).build()
+ -      replicaManager.becomeLeaderOrFollower(1, becomeLeaderRequest, (_, _) => ())
+ -
+ -      val produceResult = sendProducerAppend(replicaManager, tp0, 3)
+ -      assertNull(produceResult.get)
+ -
+ -      when(replicaManager.metadataCache.contains(tp0)).thenReturn(true)
+ -
+ -      replicaManager.stopReplicas(2, 0, 0,
+ -        mutable.Map(tp0 -> new StopReplicaPartitionState()
+ -          .setPartitionIndex(tp0.partition)
+ -          .setDeletePartition(true)
+ -          .setLeaderEpoch(LeaderAndIsr.EpochDuringDelete)))
+ -
+ -      assertNotNull(produceResult.get)
+ -      assertEquals(Errors.NOT_LEADER_OR_FOLLOWER, produceResult.get.error)
+ -    } finally {
+ -      replicaManager.shutdown(checkpointHW = false)
+ -    }
+ -  }
+ -
+ -  @Test
+ -  def testVerificationForTransactionalPartitionsOnly(): Unit = {
+ -    val tp0 = new TopicPartition(topic, 0)
+ -    val tp1 = new TopicPartition(topic, 1)
+ -    val producerId = 24L
+ -    val producerEpoch = 0.toShort
+ -    val sequence = 0
+ -    val node = new Node(0, "host1", 0)
+ -    val addPartitionsToTxnManager = mock(classOf[AddPartitionsToTxnManager])
+ -
+ -    val replicaManager = setUpReplicaManagerWithMockedAddPartitionsToTxnManager(addPartitionsToTxnManager, List(tp0, tp1), node)
+ -    try {
+ -      replicaManager.becomeLeaderOrFollower(1,
+ -        makeLeaderAndIsrRequest(topicIds(tp0.topic), tp0, Seq(0, 1), LeaderAndIsr(1, List(0, 1))),
+ -        (_, _) => ())
+ +    val becomeLeaderRequest = new LeaderAndIsrRequest.Builder(ApiKeys.LEADER_AND_ISR.latestVersion, 0, 0, brokerEpoch, brokerEpoch,
+ +      Seq(new LeaderAndIsrPartitionState()
+ +        .setTopicName(tp0.topic)
+ +        .setPartitionIndex(tp0.partition)
+ +        .setControllerEpoch(0)
+ +        .setLeader(0)
+ +        .setLeaderEpoch(1)
+ +        .setIsr(partition0Replicas)
+ +        .setZkVersion(0)
+ +        .setReplicas(partition0Replicas)
+ +        .setIsNew(true)).asJava,
+ +      Collections.singletonMap(tp0.topic, Uuid.randomUuid()),
+ +      Set(new Node(0, "host1", 0), new Node(1, "host2", 1)).asJava).build()
+ +    replicaManager.becomeLeaderOrFollower(1, becomeLeaderRequest, (_, _) => ())
+  
+ -      replicaManager.becomeLeaderOrFollower(1,
+ -        makeLeaderAndIsrRequest(topicIds(tp1.topic), tp1, Seq(0, 1), LeaderAndIsr(1, List(0, 1))),
+ -        (_, _) => ())
+ +    val produceResult = sendProducerAppend(replicaManager, tp0, 3)
+ +    assertNull(produceResult.get)
+  
+ -      // If we supply no transactional ID and idempotent records, we do not verify.
+ -      val idempotentRecords = MemoryRecords.withIdempotentRecords(CompressionType.NONE, producerId, producerEpoch, sequence,
+ -        new SimpleRecord("message".getBytes))
+ -      appendRecords(replicaManager, tp0, idempotentRecords)
+ -      verify(addPartitionsToTxnManager, times(0)).addTxnData(any(), any(), any[AddPartitionsToTxnManager.AppendCallback]())
+ -      assertNull(getVerificationGuard(replicaManager, tp0, producerId))
+ +    Mockito.when(replicaManager.metadataCache.contains(tp0)).thenReturn(true)
+  
+ -      // If we supply a transactional ID and some transactional and some idempotent records, we should only verify the topic partition with transactional records.
+ -      val transactionalRecords = MemoryRecords.withTransactionalRecords(CompressionType.NONE, producerId, producerEpoch, sequence + 1,
+ -        new SimpleRecord("message".getBytes))
+ +    replicaManager.stopReplicas(2, 0, 0,
+ +      mutable.Map(tp0 -> new StopReplicaPartitionState()
+ +        .setPartitionIndex(tp0.partition)
+ +        .setDeletePartition(true)
+ +        .setLeaderEpoch(LeaderAndIsr.EpochDuringDelete)))
+  
+++<<<<<<< HEAD
+ +    assertNotNull(produceResult.get)
+ +    assertEquals(Errors.NOT_LEADER_OR_FOLLOWER, produceResult.get.error)
+++=======
++       val transactionToAdd = new AddPartitionsToTxnTransaction()
++         .setTransactionalId(transactionalId)
++         .setProducerId(producerId)
++         .setProducerEpoch(producerEpoch)
++         .setVerifyOnly(true)
++         .setTopics(new AddPartitionsToTxnTopicCollection(
++           Seq(new AddPartitionsToTxnTopic().setName(tp0.topic).setPartitions(Collections.singletonList(tp0.partition))).iterator.asJava
++         ))
++ 
++       val idempotentRecords2 = MemoryRecords.withIdempotentRecords(CompressionType.NONE, producerId, producerEpoch, sequence,
++         new SimpleRecord("message".getBytes))
++       appendRecordsToMultipleTopics(replicaManager, Map(tp0 -> transactionalRecords, tp1 -> idempotentRecords2), transactionalId, Some(0))
++       verify(addPartitionsToTxnManager, times(1)).addTxnData(ArgumentMatchers.eq(node), ArgumentMatchers.eq(transactionToAdd), any[AddPartitionsToTxnManager.AppendCallback]())
++       assertNotNull(getVerificationGuard(replicaManager, tp0, producerId))
++       assertNull(getVerificationGuard(replicaManager, tp1, producerId))
++     } finally {
++       replicaManager.shutdown(checkpointHW = false)
++     }
++   }
++ 
++   @Test
++   def testTransactionVerificationFlow(): Unit = {
++     val tp0 = new TopicPartition(topic, 0)
++     val producerId = 24L
++     val producerEpoch = 0.toShort
++     val sequence = 6
++     val node = new Node(0, "host1", 0)
++     val addPartitionsToTxnManager = mock(classOf[AddPartitionsToTxnManager])
++ 
++     val replicaManager = setUpReplicaManagerWithMockedAddPartitionsToTxnManager(addPartitionsToTxnManager, List(tp0), node)
++     try {
++       replicaManager.becomeLeaderOrFollower(1,
++         makeLeaderAndIsrRequest(topicIds(tp0.topic), tp0, Seq(0, 1), LeaderAndIsr(1, List(0, 1))),
++         (_, _) => ())
++ 
++       // Append some transactional records.
++       val transactionalRecords = MemoryRecords.withTransactionalRecords(CompressionType.NONE, producerId, producerEpoch, sequence,
++         new SimpleRecord("message".getBytes))
++ 
++       val transactionToAdd = new AddPartitionsToTxnTransaction()
++         .setTransactionalId(transactionalId)
++         .setProducerId(producerId)
++         .setProducerEpoch(producerEpoch)
++         .setVerifyOnly(true)
++         .setTopics(new AddPartitionsToTxnTopicCollection(
++           Seq(new AddPartitionsToTxnTopic().setName(tp0.topic).setPartitions(Collections.singletonList(tp0.partition))).iterator.asJava
++         ))
++ 
++       // We should add these partitions to the manager to verify.
++       val result = appendRecords(replicaManager, tp0, transactionalRecords, transactionalId = transactionalId, transactionStatePartition = Some(0))
++       val appendCallback = ArgumentCaptor.forClass(classOf[AddPartitionsToTxnManager.AppendCallback])
++       verify(addPartitionsToTxnManager, times(1)).addTxnData(ArgumentMatchers.eq(node), ArgumentMatchers.eq(transactionToAdd), appendCallback.capture())
++       val verificationGuard = getVerificationGuard(replicaManager, tp0, producerId)
++       assertEquals(verificationGuard, getVerificationGuard(replicaManager, tp0, producerId))
++ 
++       // Confirm we did not write to the log and instead returned error.
++       val callback: AddPartitionsToTxnManager.AppendCallback = appendCallback.getValue()
++       callback(Map(tp0 -> Errors.INVALID_TXN_STATE).toMap)
++       assertEquals(Errors.INVALID_TXN_STATE, result.assertFired.error)
++       assertEquals(verificationGuard, getVerificationGuard(replicaManager, tp0, producerId))
++ 
++       // This time verification is successful.
++       appendRecords(replicaManager, tp0, transactionalRecords, transactionalId = transactionalId, transactionStatePartition = Some(0))
++       val appendCallback2 = ArgumentCaptor.forClass(classOf[AddPartitionsToTxnManager.AppendCallback])
++       verify(addPartitionsToTxnManager, times(2)).addTxnData(ArgumentMatchers.eq(node), ArgumentMatchers.eq(transactionToAdd), appendCallback2.capture())
++       assertEquals(verificationGuard, getVerificationGuard(replicaManager, tp0, producerId))
++ 
++       val callback2: AddPartitionsToTxnManager.AppendCallback = appendCallback2.getValue()
++       callback2(Map.empty[TopicPartition, Errors].toMap)
++       assertEquals(null, getVerificationGuard(replicaManager, tp0, producerId))
++       assertTrue(replicaManager.localLog(tp0).get.hasOngoingTransaction(producerId))
++     } finally {
++       replicaManager.shutdown(checkpointHW = false)
++     }
++   }
++ 
++   @Test
++   def testTransactionVerificationBlocksOutOfOrderSequence(): Unit = {
++     val tp0 = new TopicPartition(topic, 0)
++     val producerId = 24L
++     val producerEpoch = 0.toShort
++     val sequence = 6
++     val node = new Node(0, "host1", 0)
++     val addPartitionsToTxnManager = mock(classOf[AddPartitionsToTxnManager])
++ 
++     val replicaManager = setUpReplicaManagerWithMockedAddPartitionsToTxnManager(addPartitionsToTxnManager, List(tp0), node)
++     try {
++       replicaManager.becomeLeaderOrFollower(1,
++         makeLeaderAndIsrRequest(topicIds(tp0.topic), tp0, Seq(0, 1), LeaderAndIsr(1, List(0, 1))),
++         (_, _) => ())
++ 
++       // Start with sequence 6
++       val transactionalRecords = MemoryRecords.withTransactionalRecords(CompressionType.NONE, producerId, producerEpoch, sequence,
++         new SimpleRecord("message".getBytes))
++ 
++       val transactionToAdd = new AddPartitionsToTxnTransaction()
++         .setTransactionalId(transactionalId)
++         .setProducerId(producerId)
++         .setProducerEpoch(producerEpoch)
++         .setVerifyOnly(true)
++         .setTopics(new AddPartitionsToTxnTopicCollection(
++           Seq(new AddPartitionsToTxnTopic().setName(tp0.topic).setPartitions(Collections.singletonList(tp0.partition))).iterator.asJava
++         ))
++ 
++       // We should add these partitions to the manager to verify.
++       val result = appendRecords(replicaManager, tp0, transactionalRecords, transactionalId = transactionalId, transactionStatePartition = Some(0))
++       val appendCallback = ArgumentCaptor.forClass(classOf[AddPartitionsToTxnManager.AppendCallback])
++       verify(addPartitionsToTxnManager, times(1)).addTxnData(ArgumentMatchers.eq(node), ArgumentMatchers.eq(transactionToAdd), appendCallback.capture())
++       val verificationGuard = getVerificationGuard(replicaManager, tp0, producerId)
++       assertEquals(verificationGuard, getVerificationGuard(replicaManager, tp0, producerId))
++ 
++       // Confirm we did not write to the log and instead returned error.
++       val callback: AddPartitionsToTxnManager.AppendCallback = appendCallback.getValue()
++       callback(Map(tp0 -> Errors.NOT_COORDINATOR).toMap)
++       assertEquals(Errors.NOT_COORDINATOR, result.assertFired.error)
++       assertEquals(verificationGuard, getVerificationGuard(replicaManager, tp0, producerId))
++ 
++       // Try to append a higher sequence (7) after the first one failed with a retriable error.
++       val transactionalRecords2 = MemoryRecords.withTransactionalRecords(CompressionType.NONE, producerId, producerEpoch, sequence + 1,
++         new SimpleRecord("message".getBytes))
++ 
++       val result2 = appendRecords(replicaManager, tp0, transactionalRecords2, transactionalId = transactionalId, transactionStatePartition = Some(0))
++       val appendCallback2 = ArgumentCaptor.forClass(classOf[AddPartitionsToTxnManager.AppendCallback])
++       verify(addPartitionsToTxnManager, times(2)).addTxnData(ArgumentMatchers.eq(node), ArgumentMatchers.eq(transactionToAdd), appendCallback2.capture())
++       assertEquals(verificationGuard, getVerificationGuard(replicaManager, tp0, producerId))
++ 
++       // Verification should succeed, but we expect to fail with OutOfOrderSequence and for the verification guard to remain.
++       val callback2: AddPartitionsToTxnManager.AppendCallback = appendCallback2.getValue()
++       callback2(Map.empty[TopicPartition, Errors].toMap)
++       assertEquals(verificationGuard, getVerificationGuard(replicaManager, tp0, producerId))
++       assertEquals(Errors.OUT_OF_ORDER_SEQUENCE_NUMBER, result2.assertFired.error)
++     } finally {
++       replicaManager.shutdown(checkpointHW = false)
++     }
++   }
++ 
++   @Test
++   def testTransactionVerificationGuardOnMultiplePartitions(): Unit = {
++     val mockTimer = new MockTimer(time)
++     val tp0 = new TopicPartition(topic, 0)
++     val tp1 = new TopicPartition(topic, 1)
++     val producerId = 24L
++     val producerEpoch = 0.toShort
++     val sequence = 0
++ 
++     val replicaManager = setupReplicaManagerWithMockedPurgatories(mockTimer)
++     try {
++       replicaManager.becomeLeaderOrFollower(1,
++         makeLeaderAndIsrRequest(topicIds(tp0.topic), tp0, Seq(0, 1), LeaderAndIsr(0, List(0, 1))),
++         (_, _) => ())
++ 
++       replicaManager.becomeLeaderOrFollower(1,
++         makeLeaderAndIsrRequest(topicIds(tp1.topic), tp1, Seq(0, 1), LeaderAndIsr(0, List(0, 1))),
++         (_, _) => ())
++ 
++       val transactionalRecords = MemoryRecords.withTransactionalRecords(CompressionType.NONE, producerId, producerEpoch, sequence,
++         new SimpleRecord(s"message $sequence".getBytes))
++ 
++       appendRecordsToMultipleTopics(replicaManager, Map(tp0 -> transactionalRecords, tp1 -> transactionalRecords), transactionalId, Some(0)).onFire { responses =>
++         responses.foreach {
++           entry => assertEquals(Errors.NONE, entry._2)
++         }
++       }
++     } finally {
++       replicaManager.shutdown(checkpointHW = false)
++     }
++   }
++ 
++   @Test
++   def testExceptionWhenUnverifiedTransactionHasMultipleProducerIds(): Unit = {
++     val tp0 = new TopicPartition(topic, 0)
++     val tp1 = new TopicPartition(topic, 1)
++     val transactionalId = "txn1"
++     val producerId = 24L
++     val producerEpoch = 0.toShort
++     val sequence = 0
++ 
++     val node = new Node(0, "host1", 0)
++     val addPartitionsToTxnManager = mock(classOf[AddPartitionsToTxnManager])
++ 
++     val replicaManager = setUpReplicaManagerWithMockedAddPartitionsToTxnManager(addPartitionsToTxnManager, List(tp0, tp1), node)
++ 
++     try {
++       replicaManager.becomeLeaderOrFollower(1,
++         makeLeaderAndIsrRequest(topicIds(tp0.topic), tp0, Seq(0, 1), LeaderAndIsr(1, List(0, 1))),
++         (_, _) => ())
++ 
++       replicaManager.becomeLeaderOrFollower(1,
++         makeLeaderAndIsrRequest(topicIds(tp1.topic), tp1, Seq(0, 1), LeaderAndIsr(1, List(0, 1))),
++         (_, _) => ())
++ 
++       // Append some transactional records with different producer IDs
++       val transactionalRecords = mutable.Map[TopicPartition, MemoryRecords]()
++       transactionalRecords.put(tp0, MemoryRecords.withTransactionalRecords(CompressionType.NONE, producerId, producerEpoch, sequence,
++         new SimpleRecord(s"message $sequence".getBytes)))
++       transactionalRecords.put(tp1, MemoryRecords.withTransactionalRecords(CompressionType.NONE, producerId + 1, producerEpoch, sequence,
++         new SimpleRecord(s"message $sequence".getBytes)))
++ 
++       assertThrows(classOf[InvalidPidMappingException],
++         () => appendRecordsToMultipleTopics(replicaManager, transactionalRecords, transactionalId = transactionalId, transactionStatePartition = Some(0)))
++       // We should not add these partitions to the manager to verify.
++       verify(addPartitionsToTxnManager, times(0)).addTxnData(any(), any(), any())
++     } finally {
++       replicaManager.shutdown(checkpointHW = false)
++     }
++   }
++ 
++   @Test
++   def testTransactionVerificationWhenNotLeader(): Unit = {
++     val tp0 = new TopicPartition(topic, 0)
++     val producerId = 24L
++     val producerEpoch = 0.toShort
++     val sequence = 6
++     val node = new Node(0, "host1", 0)
++     val addPartitionsToTxnManager = mock(classOf[AddPartitionsToTxnManager])
++ 
++     val replicaManager = setUpReplicaManagerWithMockedAddPartitionsToTxnManager(addPartitionsToTxnManager, List(tp0), node)
++     try {
++       // Append some transactional records.
++       val transactionalRecords = MemoryRecords.withTransactionalRecords(CompressionType.NONE, producerId, producerEpoch, sequence,
++         new SimpleRecord("message".getBytes))
++ 
++       val transactionToAdd = new AddPartitionsToTxnTransaction()
++         .setTransactionalId(transactionalId)
++         .setProducerId(producerId)
++         .setProducerEpoch(producerEpoch)
++         .setVerifyOnly(true)
++         .setTopics(new AddPartitionsToTxnTopicCollection(
++           Seq(new AddPartitionsToTxnTopic().setName(tp0.topic).setPartitions(Collections.singletonList(tp0.partition))).iterator.asJava
++         ))
++ 
++       // We should not add these partitions to the manager to verify, but instead throw an error.
++       appendRecords(replicaManager, tp0, transactionalRecords, transactionalId = transactionalId, transactionStatePartition = Some(0)).onFire { response =>
++         assertEquals(Errors.NOT_LEADER_OR_FOLLOWER, response.error)
++       }
++       verify(addPartitionsToTxnManager, times(0)).addTxnData(ArgumentMatchers.eq(node), ArgumentMatchers.eq(transactionToAdd), any[AddPartitionsToTxnManager.AppendCallback]())
++     } finally {
++       replicaManager.shutdown(checkpointHW = false)
++     }
++   }
++ 
++   @Test
++   def testDisabledTransactionVerification(): Unit = {
++     val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect)
++     props.put("transaction.partition.verification.enable", "false")
++     val config = KafkaConfig.fromProps(props)
++ 
++     val tp = new TopicPartition(topic, 0)
++     val transactionalId = "txn1"
++     val producerId = 24L
++     val producerEpoch = 0.toShort
++     val sequence = 0
++ 
++     val node = new Node(0, "host1", 0)
++     val addPartitionsToTxnManager = mock(classOf[AddPartitionsToTxnManager])
++ 
++     val replicaManager = setUpReplicaManagerWithMockedAddPartitionsToTxnManager(addPartitionsToTxnManager, List(tp), node, config = config)
++ 
++     try {
++       val becomeLeaderRequest = makeLeaderAndIsrRequest(topicIds(tp.topic), tp, Seq(0, 1), LeaderAndIsr(0, List(0, 1)))
++       replicaManager.becomeLeaderOrFollower(1, becomeLeaderRequest, (_, _) => ())
++ 
++       val transactionalRecords = MemoryRecords.withTransactionalRecords(CompressionType.NONE, producerId, producerEpoch, sequence,
++         new SimpleRecord(s"message $sequence".getBytes))
++       appendRecords(replicaManager, tp, transactionalRecords, transactionalId = transactionalId, transactionStatePartition = Some(0))
++       assertNull(getVerificationGuard(replicaManager, tp, producerId))
++ 
++       // We should not add these partitions to the manager to verify.
++       verify(addPartitionsToTxnManager, times(0)).addTxnData(any(), any(), any())
++     } finally {
++       replicaManager.shutdown(checkpointHW = false)
++     }
++   }
++ 
++   @Test
++   def testGetTransactionCoordinator(): Unit = {
++     val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)))
++ 
++     val metadataCache = mock(classOf[MetadataCache])
++ 
++     val replicaManager = new ReplicaManager(
++       metrics = metrics,
++       config = config,
++       time = time,
++       scheduler = new MockScheduler(time),
++       logManager = mockLogMgr,
++       quotaManagers = quotaManager,
++       metadataCache = metadataCache,
++       logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size),
++       alterPartitionManager = alterPartitionManager)
++ 
++     try {
++       val txnCoordinatorPartition0 = 0
++       val txnCoordinatorPartition1 = 1
++ 
++       // Before we set up the metadata cache, return nothing for the topic.
++       when(metadataCache.getTopicMetadata(Set(Topic.TRANSACTION_STATE_TOPIC_NAME), config.interBrokerListenerName)).thenReturn(Seq())
++       assertEquals((Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode), replicaManager.getTransactionCoordinator(txnCoordinatorPartition0))
++ 
++       // Return an error response.
++       when(metadataCache.getTopicMetadata(Set(Topic.TRANSACTION_STATE_TOPIC_NAME), config.interBrokerListenerName)).
++         thenReturn(Seq(new MetadataResponseTopic().setErrorCode(Errors.UNSUPPORTED_VERSION.code)))
++       assertEquals((Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode), replicaManager.getTransactionCoordinator(txnCoordinatorPartition0))
++ 
++       val metadataResponseTopic = Seq(new MetadataResponseTopic()
++         .setName(Topic.TRANSACTION_STATE_TOPIC_NAME)
++         .setPartitions(Seq(
++           new MetadataResponsePartition()
++             .setPartitionIndex(0)
++             .setLeaderId(0),
++           new MetadataResponsePartition()
++             .setPartitionIndex(1)
++             .setLeaderId(1)).asJava))
++       val node0 = new Node(0, "host1", 0)
++ 
++       when(metadataCache.getTopicMetadata(Set(Topic.TRANSACTION_STATE_TOPIC_NAME), config.interBrokerListenerName)).thenReturn(metadataResponseTopic)
++       when(metadataCache.getAliveBrokerNode(0, config.interBrokerListenerName)).thenReturn(Some(node0))
++       when(metadataCache.getAliveBrokerNode(1, config.interBrokerListenerName)).thenReturn(None)
++ 
++       assertEquals((Errors.NONE, node0), replicaManager.getTransactionCoordinator(txnCoordinatorPartition0))
++       assertEquals((Errors.COORDINATOR_NOT_AVAILABLE, Node.noNode), replicaManager.getTransactionCoordinator(txnCoordinatorPartition1))
++     } finally {
++       replicaManager.shutdown(checkpointHW = false)
++     }
+++>>>>>>> 6f39ef02ca (MINOR: Adjust Invalid Record Exception for Invalid Txn State as mentioned in KIP-890 (#14088))
+    }
+  
+    private def sendProducerAppend(
+* Unmerged path core/src/main/scala/kafka/log/UnifiedLog.scala
+* Unmerged path core/src/main/scala/kafka/server/AddPartitionsToTxnManager.scala
+* Unmerged path core/src/test/scala/unit/kafka/server/AddPartitionsToTxnManagerTest.scala

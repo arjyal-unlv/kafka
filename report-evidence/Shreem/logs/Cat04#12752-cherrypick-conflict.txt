@@ -1,0 +1,89 @@
+diff --cc clients/src/main/java/org/apache/kafka/clients/producer/KafkaProducer.java
+index 1445daa240,f2e9627851..0000000000
+--- a/clients/src/main/java/org/apache/kafka/clients/producer/KafkaProducer.java
++++ b/clients/src/main/java/org/apache/kafka/clients/producer/KafkaProducer.java
+@@@ -411,8 -412,18 +411,21 @@@ public class KafkaProducer<K, V> implem
+  
+              this.apiVersions = new ApiVersions();
+              this.transactionManager = configureTransactionState(config, logContext);
+++<<<<<<< HEAD
+++=======
++             // There is no need to do work required for adaptive partitioning, if we use a custom partitioner.
++             boolean enableAdaptivePartitioning = partitioner == null &&
++                 config.getBoolean(ProducerConfig.PARTITIONER_ADPATIVE_PARTITIONING_ENABLE_CONFIG);
++             RecordAccumulator.PartitionerConfig partitionerConfig = new RecordAccumulator.PartitionerConfig(
++                 enableAdaptivePartitioning,
++                 config.getLong(ProducerConfig.PARTITIONER_AVAILABILITY_TIMEOUT_MS_CONFIG)
++             );
++             // As per Kafka producer configuration documentation batch.size may be set to 0 to explicitly disable
++             // batching which in practice actually means using a batch size of 1.
++             int batchSize = Math.max(1, config.getInt(ProducerConfig.BATCH_SIZE_CONFIG));
+++>>>>>>> 5bd556a49b (KAFKA-14303 Producer.send without record key and batch.size=0 goes into infinite loop (#12752))
+              this.accumulator = new RecordAccumulator(logContext,
+-                     config.getInt(ProducerConfig.BATCH_SIZE_CONFIG),
++                     batchSize,
+                      this.compressionType,
+                      lingerMs(config),
+                      retryBackoffMs,
+diff --cc core/src/test/scala/integration/kafka/api/PlaintextProducerSendTest.scala
+index d8113f1ca0,7c89db8fee..0000000000
+--- a/core/src/test/scala/integration/kafka/api/PlaintextProducerSendTest.scala
++++ b/core/src/test/scala/integration/kafka/api/PlaintextProducerSendTest.scala
+@@@ -28,7 -27,11 +28,15 @@@ import org.apache.kafka.common.errors.{
+  import org.apache.kafka.common.record.{DefaultRecord, DefaultRecordBatch, Records, TimestampType}
+  import org.apache.kafka.common.serialization.ByteArraySerializer
+  import org.junit.jupiter.api.Assertions._
+++<<<<<<< HEAD
+ +import org.junit.jupiter.api.Test
+++=======
++ import org.junit.jupiter.api.Timeout
++ import org.junit.jupiter.params.ParameterizedTest
++ import org.junit.jupiter.params.provider.ValueSource
+++>>>>>>> 5bd556a49b (KAFKA-14303 Producer.send without record key and batch.size=0 goes into infinite loop (#12752))
++ 
++ import java.nio.charset.StandardCharsets
+  
+  
+  class PlaintextProducerSendTest extends BaseProducerSendTest {
+@@@ -54,9 -58,34 +62,40 @@@
+      sendAndVerify(producer)
+    }
+  
+++<<<<<<< HEAD
+ +  @Test
+ +  def testSendCompressedMessageWithLogAppendTime(): Unit = {
+ +    val producer = createProducer(brokerList = brokerList,
+++=======
++   @Timeout(value = 15, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
++   @ParameterizedTest(name = TestInfoUtils.TestWithParameterizedQuorumName)
++   @ValueSource(strings = Array("zk", "kraft"))
++   def testBatchSizeZeroNoPartitionNoRecordKey(quorum: String): Unit = {
++     val producer = createProducer(batchSize = 0)
++     val numRecords = 10;
++     try {
++       TestUtils.createTopicWithAdmin(admin, topic, brokers, 2)
++       val futures = for (i <- 1 to numRecords) yield {
++         val record = new ProducerRecord[Array[Byte], Array[Byte]](topic, null, s"value$i".getBytes(StandardCharsets.UTF_8))
++         producer.send(record)
++       }
++       producer.flush()
++       val lastOffset = futures.foldLeft(0) { (offset, future) =>
++         val recordMetadata = future.get
++         assertEquals(topic, recordMetadata.topic)
++         offset + 1
++       }
++       assertEquals(numRecords, lastOffset)
++     } finally {
++       producer.close()
++     }
++   }
++ 
++   @ParameterizedTest(name = TestInfoUtils.TestWithParameterizedQuorumName)
++   @ValueSource(strings = Array("zk", "kraft"))
++   def testSendCompressedMessageWithLogAppendTime(quorum: String): Unit = {
++     val producer = createProducer(
+++>>>>>>> 5bd556a49b (KAFKA-14303 Producer.send without record key and batch.size=0 goes into infinite loop (#12752))
+        compressionType = "gzip",
+        lingerMs = Int.MaxValue,
+        deliveryTimeoutMs = Int.MaxValue)
+* Unmerged path clients/src/main/java/org/apache/kafka/clients/producer/internals/BuiltInPartitioner.java

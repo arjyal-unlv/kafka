@@ -1,0 +1,47 @@
+# RePatch conflict counting vs git, across my three Category 4 PRs
+# date: 16 November 2026
+# method: re-ran each PR with "repatch lab apache/kafka linkedin/kafka <n>" and read the
+#         conflict_block and conflicting_file tables directly from repatch_lab.
+#         All three verdicts reproduced exactly, four weeks after the original runs.
+
+PR       my cherry-pick (git CLI)              RePatch harness count        verdict
+-------  ------------------------------------  ---------------------------  ---------
+#12244   2 files, both Java                    2 files                      2/4/109
+#12752   3 files (1 Java, 1 Scala, 1 mod/del)  1 file  (KafkaProducer.java)  1/1/12
+#14088   7 files (1 Java, 3 Scala, 3 mod/del)  1 file  (SenderTest.java)     1/1/113
+
+# THE PATTERN
+#   #12244 is the control. Every file it touches is Java, and RePatch's count matches git's
+#   exactly, 2 files. On the other two PRs the counts diverge, and what disappears is always
+#   the same two categories:
+#     - content conflicts in Scala files
+#     - modify/delete conflicts, where the file is absent from the target
+#
+#   RefactoringMiner is Java-only, so a Java-only conflict measurement is a plausible
+#   consequence of the tool's design.
+
+# BLOCK DETAIL
+#   #12752  KafkaProducer.java 414-426, 12 loc. Identical for Git-CherryPick and RePatch.
+#           Not counted: PlaintextProducerSendTest.scala (content), BuiltInPartitioner.java
+#           (deleted by us).
+#   #14088  SenderTest.java 2953-3066, 113 loc. Identical for Git-CherryPick and RePatch.
+#           Not counted: ReplicaManager.scala, PartitionTest.scala, ReplicaManagerTest.scala
+#           (all content), and UnifiedLog.scala, AddPartitionsToTxnManager.scala,
+#           AddPartitionsToTxnManagerTest.scala (all modify/delete).
+
+# WHY THIS MATTERS
+#   A RePatch verdict understates the conflict on any patch that is not pure Java. For #14088
+#   it reports 1 file and 113 conflicting lines for a change that in fact conflicts on seven
+#   files in two different ways. A developer reading only the verdict would badly misjudge the
+#   work required.
+#
+#   It also changes how the "identical verdict" result should be stated. RePatch reports a
+#   Git-CherryPick row alongside its own, and both come from the same harness. So "RePatch
+#   matched cherry-pick" means it matched RePatch's own measurement of cherry-pick, which on
+#   #12752 and #14088 is not what the git command line reported to me. The identical-verdict
+#   finding still stands, but it is a statement about the two tools inside that harness.
+
+# CAVEAT, stated because I have not verified it
+#   I have not read RePatch's source to confirm that the file filter is Java-only. The
+#   hypothesis is inferred from three runs: the one all-Java PR matches git, and the two mixed
+#   PRs drop exactly their Scala and modify/delete files. That is consistent but not proof.

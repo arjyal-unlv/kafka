@@ -1,0 +1,14 @@
+On branch pr-12288
+You are currently cherry-picking commit 3189a8648f.
+  (fix conflicts and run "git cherry-pick --continue")
+  (use "git cherry-pick --skip" to skip this patch)
+  (use "git cherry-pick --abort" to cancel the cherry-pick operation)
+
+Changes to be committed:
+	modified:   streams/test-utils/src/test/java/org/apache/kafka/streams/TestTopicsTest.java
+
+Unmerged paths:
+  (use "git add <file>..." to mark resolution)
+	both modified:   streams/src/main/java/org/apache/kafka/streams/processor/internals/ClientUtils.java
+	both modified:   streams/src/test/java/org/apache/kafka/streams/processor/internals/ClientUtilsTest.java
+
