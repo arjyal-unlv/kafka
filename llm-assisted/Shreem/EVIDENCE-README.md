@@ -16,6 +16,7 @@ repetitive results and link to supporting evidence instead of reproducing it.
 | `Cat04#14088-` | Category 4. Seven conflicts in two kinds, RePatch database. |
 | `Cat04#12244-` | Category 4. Content-only conflicts, the RePatch log showing a rename inverted and replayed, tests after adaptation. |
 | `Fig1`–`Fig4` | The four design-gap diagrams and the Category 4 taxonomy. |
+| `Metrics-hotspot-analysis.png` | Hotspot analysis of `3.0-li`, change frequency against complexity for all 2,432 production source files, with my seven PRs' integration points marked. |
 | `PartA#14088-` | LLM Part A. Model and hardware, baseline failure, the three attempts and their verification. |
 | `PartB#12244-` | LLM Part B. Test baseline, coverage before and after, generated tests failing to compile, the repaired test, the can-it-fail check. |
 | `Test#12752-`, `Test#12244-`, `Test#14088-` | The two regression tests added after the Intermediate, and the RePatch conflict-block queries from 16 November. |
@@ -24,9 +25,18 @@ repetitive results and link to supporting evidence instead of reproducing it.
 
 Raw text captured at the time rather than retyped: cherry-pick conflicts and status output for
 every PR that failed, RePatch verdict tables for all four runs, and two analyses written on
-16 November — `Cat04#12244-repatch-conflict-blocks.txt`, which breaks the 109 conflicting lines
+16 November, `Cat04#12244-repatch-conflict-blocks.txt`, which breaks the 109 conflicting lines
 into four blocks, and `Cat04-repatch-file-counting-finding.txt`, which records that RePatch's
 file count omits Scala files and modify/delete conflicts.
 
 The LLM prompts, raw model responses, generated patches and verification logs are not here.
 They live under `llm-assisted/Shreem/part-a/` and `part-b/` on this same branch.
+
+## hotspot_analysis.py
+
+The script that produces `screenshots/Metrics-hotspot-analysis.png`. It reads the `3.0-li`
+history with git, counts how often each production source file changed, measures size and
+decision points, ranks every file by change frequency times complexity, and marks where my
+seven PRs' integration points fall. Run it with `python3 hotspot_analysis.py` from a checkout
+of this fork; it needs matplotlib for the chart and prints the rankings either way. The
+`REPO` path at the top points at my local clone and is the one line to change.
