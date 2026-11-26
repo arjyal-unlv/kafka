@@ -1,0 +1,88 @@
+[repatch] run database: repatch_lab
+[repatch] scenarios: 1
+[repatch]   apache/kafka -> linkedin/kafka: 1 PR(s), modeled kafka clone, checkout linkedin-kafka
+[repatch] GitHub token: present — saved in the data volume (40 chars, ends ...ZW3g)
+[repatch] GitHub token installed
+[repatch] template cached: HEAD=fdb9fd013a
+[repatch] wiped sandbox system /home/repatch/RePatch/.intellijPlatform/sandbox/RePatch/IC-2024.3.7/system
+[repatch] refreshing working clone from template
+[repatch] scenarios: 1
+[repatch]   apache/kafka -> linkedin/kafka: 1 PR(s), modeled kafka clone, checkout linkedin-kafka
+[repatch] database repatch_lab ready (8 tables)
+[repatch] launching pipeline (1 patches, timeout 5400s)
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Task :initializeIntellijPlatformPlugin
+[org.jetbrains.intellij.platform] IntelliJ Platform Gradle Plugin is outdated: 2.16.0. Update `org.jetbrains.intellij.platform` to: 2.20.1
+
+> Task :patchPluginXml UP-TO-DATE
+> Task :generateManifest UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :instrumentCode UP-TO-DATE
+> Task :jar
+> Task :instrumentedJar
+> Task :composedJar
+> Task :prepareSandbox
+
+> Task :runIde
+[0.009s][warning][cds] Archived non-system classes are disabled because the java.system.class.loader property is specified (value = "com.intellij.util.lang.PathClassLoader"). To use archived non-system classes, this property must not be set
+2026-11-26 01:58:12,446 [    495]   WARN - c.i.o.u.r.overrides - Conflicting registry key definition for key kotlin.mpp.tests.force.gradle: it was defined by plugin org.jetbrains.kotlin but redefined by plugin org.jetbrains.kotlin. Consider adding overrides="true" for one of the plugins, see the documentation for com.intellij.openapi.util.registry.RegistryKeyBean.overrides for more details.
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+Loading class `com.mysql.jdbc.Driver'. This is deprecated. The new driver class is `com.mysql.cj.jdbc.Driver'. The driver is automatically registered via the SPI and manual loading of the driver class is generally unnecessary.
+2026-11-26 01:58:12,650 [    699]   WARN - #c.i.i.s.p.i.BundledSharedIndexProvider - Bundled shared index is not found at: /home/repatch/.gradle/caches/9.0.0/transforms/8f727db627230312a9cbeca2cb1c2729/transformed/ideaIC-2024.3.7-aarch64/jdk-shared-indexes
+-> Remote Repo Name: kafka
+2026-11-26 01:58:13,694 [   1743]   WARN - #c.i.s.ComponentManagerImpl - `preload=TRUE` must be used only for core services (service=org.jetbrains.idea.maven.project.MavenProjectsManagerEx, plugin=org.jetbrains.idea.maven)
+2026-11-26 01:58:13,694 [   1743]   WARN - #c.i.s.ComponentManagerImpl - `preload=TRUE` must be used only for core services (service=org.jetbrains.idea.maven.navigator.MavenProjectsNavigator, plugin=org.jetbrains.idea.maven)
+2026-11-26 01:58:13,695 [   1744]   WARN - #c.i.s.ComponentManagerImpl - `preload=TRUE` must be used only for core services (service=org.jetbrains.idea.maven.tasks.MavenShortcutsManager, plugin=org.jetbrains.idea.maven)
+2026-11-26 01:58:13,695 [   1744]   WARN - #c.i.s.ComponentManagerImpl - `preload=TRUE` must be used only for core services (service=com.intellij.cwm.plugin.users.BackendUserManager, plugin=com.jetbrains.codeWithMe)
+2026-11-26 01:58:13,695 [   1744]   WARN - #c.i.s.ComponentManagerImpl - `preload=TRUE` must be used only for core services (service=com.intellij.cwm.plugin.ports.CwmPortForwardingToolWindowManager, plugin=com.jetbrains.codeWithMe)
+2026-11-26 01:58:13,695 [   1744]   WARN - #c.i.s.ComponentManagerImpl - `preload=TRUE` must be used only for core services (service=com.intellij.cwm.plugin.following.FollowMeManagerService, plugin=com.jetbrains.codeWithMe)
+-> Project model loaded: 43 modules, 43 content roots
+-> Project-store reload blocked for pipeline lifetime (model pinned)
+-> Project SDK resolved: 11 (/usr/lib/jvm/temurin-11-jdk-amd64)
+Starting Project -> linkedin-kafka
+Repository for Integration -> /home/repatch/data/run/linkedin-kafka
+Git HEAD Commit Hash: fdb9fd013ad0fa86adb01c6d1d2852d396b93b04
+>>>>>>>>>Patch Integration 1: PR 14088<<<<<<<<<<
+[INFO] Connected to GitHub with OAuth token.
+2026-11-26 01:58:19,038 [   7087]   WARN - #c.i.o.e.autolink - Unlinked project notification is shown; Consider specifying 'external.system.link.unlinked.projects' to import the necessary build scripts.
+-> Parent SHA (Base/Left): 29825ee24f91e17a6193de0755bec668821e94a3
+ -> MergeCommitSha: 6f39ef02ca1cec70067752bfde57537952e5bb42
+Cherry-pick success: false
+Cherry-pick error: could not apply 6f39ef02ca... MINOR: Adjust Invalid Record Exception for Invalid Txn State as mentioned in KIP-890 (#14088)
+hint: after resolving the conflicts, mark the corrected paths
+hint: with 'git add <paths>' or 'git rm <paths>'
+Cherry-pick resulted in conflicts.
+-> Is conflicting: true
+-> Conflicting files (7): [clients/src/test/java/org/apache/kafka/clients/producer/internals/SenderTest.java, core/src/main/scala/kafka/log/UnifiedLog.scala, core/src/main/scala/kafka/server/AddPartitionsToTxnManager.scala, core/src/main/scala/kafka/server/ReplicaManager.scala, core/src/test/scala/unit/kafka/cluster/PartitionTest.scala, core/src/test/scala/unit/kafka/server/AddPartitionsToTxnManagerTest.scala, core/src/test/scala/unit/kafka/server/ReplicaManagerTest.scala]
+-> Starting RePatch
+Detecting refactorings
+-> Scoped detection for 6f39ef02ca1cec70067752bfde57537952e5bb42 to conflicting files: kept 0/0
+-> Scoped detection for fdb9fd013ad0fa86adb01c6d1d2852d396b93b04 to conflicting files: kept 0/120
+Inverting right refactorings
+MODELPROBE invert-entry modules=43 contentRoots=43
+-> addAndCommit: 0 dirty paths on disk before add
+Inverting left refactorings
+MODELPROBE invert-entry modules=43 contentRoots=43
+-> addAndCommit: 0 dirty paths on disk before add
+11/26/2026 01:59:38 UTC 0 refactorings were not inverted for fdb9fd013ad0fa86adb01c6d1d2852d396b93b04 and 6f39ef02ca1cec70067752bfde57537952e5bb42
+-> Try cherry picking after undoing refactoring.......
+Detecting refactoring conflicts
+Replaying refactorings
+RePatch is done
+-> Captured RePatch result state d225d313c5a6afa6f4488a1c44331ca7ca9672f1 -> /home/repatch/results/linkedin-kafka/commit1/repatch-state.bundle
+-> Elapsed RePatch runtime = ([],70057)
+[repatch] all 1 patches recorded done; 45s settle, then shutting the IDE down
+
+==================== VERDICTS (repatch_lab) ====================
++---------+--------+----------------+---------+
+| project | number | merge_tool     | verdict |
++---------+--------+----------------+---------+
+| kafka   |  14088 | Git-CherryPick | 1/1/113 |
+| kafka   |  14088 | RePatch        | 1/1/113 |
++---------+--------+----------------+---------+

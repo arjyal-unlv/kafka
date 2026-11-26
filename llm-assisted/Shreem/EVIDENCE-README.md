@@ -29,6 +29,15 @@ every PR that failed, RePatch verdict tables for all four runs, and two analyses
 into four blocks, and `Cat04-repatch-file-counting-finding.txt`, which records that RePatch's
 file count omits Scala files and modify/delete conflicts.
 
+Two files from a fifth run on 25 November 2026. `Cat04#14088-repatch-rerun-25nov.log` is the
+console output of `repatch lab apache/kafka linkedin/kafka 14088`, with the IntelliJ indexer
+warnings stripped and everything else intact; it carries the `Conflicting files (7)` line and
+both `Scoped detection` lines. `Cat04-repatch-log-vs-database-finding.txt` records what that run
+settled: RePatch names seven conflicting files in its log and stores one in `conflicting_file`,
+and none of the 454 refactorings it detected mentions a Scala file, so the `Log.scala` to
+`UnifiedLog.scala` rename was never detected rather than detected and discarded. That corrects
+what I wrote in the Intermediate Report.
+
 The LLM prompts, raw model responses, generated patches and verification logs are not here.
 They live under `llm-assisted/Shreem/part-a/` and `part-b/` on this same branch.
 

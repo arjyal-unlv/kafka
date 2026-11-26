@@ -1,0 +1,74 @@
+# RePatch reports seven conflicting files in its log and records one in its database
+# PR: apache/kafka #14088, merge commit 6f39ef02ca1cec70067752bfde57537952e5bb42
+# Target: linkedin/kafka 3.0-li, baseline b66a8c827d6b8441a89ebf78eac38666bf0551cc
+# Date: 25 November 2026. Third run of this PR; verdict identical to 20 October and 16 November.
+# Command: repatch lab apache/kafka linkedin/kafka 14088
+# Full log: Cat04#14088-repatch-rerun-25nov.log
+
+## 1. WHAT THE LOG SAYS
+
+  -> Is conflicting: true
+  -> Conflicting files (7): [clients/src/test/java/org/apache/kafka/clients/producer/internals/SenderTest.java,
+     core/src/main/scala/kafka/log/UnifiedLog.scala,
+     core/src/main/scala/kafka/server/AddPartitionsToTxnManager.scala,
+     core/src/main/scala/kafka/server/ReplicaManager.scala,
+     core/src/test/scala/unit/kafka/cluster/PartitionTest.scala,
+     core/src/test/scala/unit/kafka/server/AddPartitionsToTxnManagerTest.scala,
+     core/src/test/scala/unit/kafka/server/ReplicaManagerTest.scala]
+
+RePatch identifies all seven. This matches what git reported at my own command line.
+
+## 2. WHAT THE DATABASE SAYS
+
+  SELECT merge_tool, path, total_conflicts, total_conflicting_loc FROM conflicting_file;
+
+  RePatch          clients/.../SenderTest.java   1   113
+  Git-CherryPick   clients/.../SenderTest.java   1   113
+
+  SELECT merge_tool, total_conflicting_files, total_conflicting_loc FROM merge_result;
+
+  RePatch          1   113
+  Git-CherryPick   1   113
+
+One row per tool. The six Scala files are absent from both.
+
+## 3. THE DISCREPANCY
+
+The same run detects seven conflicting files and records one. The six that disappear are
+all the Scala files, covering both kinds: content conflicts (ReplicaManager.scala,
+PartitionTest.scala, ReplicaManagerTest.scala) and modify/delete where the file is absent
+from the target (UnifiedLog.scala, AddPartitionsToTxnManager.scala,
+AddPartitionsToTxnManagerTest.scala).
+
+This affects the Git-CherryPick row as well as the RePatch row, so a reader comparing the two
+tools inside this harness is comparing two numbers that both understate the conflict.
+
+## 4. CORRECTION TO WHAT I WROTE IN THE INTERMEDIATE AND IN EARLIER DRAFTS
+
+I previously wrote that scoping discarded the Log.scala -> UnifiedLog.scala rename
+(KAFKA-13068, upstream db1f581da7). The database shows that is not what happened:
+
+  SELECT COUNT(*) FROM refactoring;                                      -> 454
+  SELECT COUNT(*) FROM refactoring WHERE refactoring_detail LIKE '%.scala%';   -> 0
+  SELECT COUNT(*) FROM refactoring WHERE refactoring_detail LIKE '%nifiedLog%'
+                                      OR refactoring_detail LIKE '%Log.scala%'; -> 0
+
+Not one of the 454 detected refactorings mentions a Scala file. The rename was never
+detected, so scoping had nothing to discard. The log line
+
+  -> Scoped detection for fdb9fd013ad0fa86adb01c6d1d2852d396b93b04 to conflicting files: kept 0/120
+
+refers to 120 Java refactorings, none of which touch the conflicting files.
+
+The accurate statement is narrower and stronger: RefactoringMiner is Java-only, so RePatch
+cannot assist any patch that edits Scala. Most of Kafka's broker code is Scala.
+
+## 5. REFACTORING TYPES DETECTED, ALL JAVA (top of 454)
+
+  ADD_PARAMETER 58, CHANGE_VARIABLE_TYPE 44, CHANGE_ATTRIBUTE_TYPE 36,
+  CHANGE_PARAMETER_TYPE 32, CHANGE_RETURN_TYPE 31, RENAME_METHOD 30,
+  RENAME_PARAMETER 22, CHANGE_OPERATION_ACCESS_MODIFIER 22, EXTRACT_OPERATION 22,
+  RENAME_VARIABLE 21, INLINE_OPERATION 19, MODIFY_METHOD_ANNOTATION 18,
+  ADD_METHOD_ANNOTATION 17, EXTRACT_VARIABLE 15, REMOVE_PARAMETER 11
+
+  refactoring_conflict: 0 rows, as in every previous run.
